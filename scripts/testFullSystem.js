@@ -1,5 +1,5 @@
 async function testFull() {
-  const baseURL = 'http://localhost:5001/api';
+  const baseURL = 'https://apicrm.cursiveletters.in/api';
   let adminToken = '';
   
   try {

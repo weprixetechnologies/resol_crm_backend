@@ -1,5 +1,5 @@
 async function testAuth() {
-  const baseURL = 'http://localhost:5001/api/auth';
+  const baseURL = 'https://apicrm.cursiveletters.in/api/auth';
   try {
     console.log('1. Testing Login...');
     let res = await fetch(`${baseURL}/login`, {
