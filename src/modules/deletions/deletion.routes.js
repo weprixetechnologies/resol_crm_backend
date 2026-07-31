@@ -10,6 +10,8 @@ const router = express.Router();
 router.use(authMiddleware, requireRole('admin'));
 
 router.get('/', asyncHandler(deletionController.getRequests));
+router.post('/bulk-approve', asyncHandler(deletionController.bulkApprove));
+router.post('/bulk-reject', asyncHandler(deletionController.bulkReject));
 router.post('/:id/approve', asyncHandler(deletionController.approve));
 router.post('/:id/reject', asyncHandler(deletionController.reject));
 

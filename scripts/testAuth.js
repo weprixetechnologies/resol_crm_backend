@@ -15,7 +15,7 @@ async function testAuth() {
       throw new Error(`Non-JSON response: ${text}`);
     }
     if (!data.success) throw new Error(JSON.stringify(data.error));
-    
+
     const { accessToken, refreshToken, user } = data.data;
     console.log('Login successful. Received tokens.');
 

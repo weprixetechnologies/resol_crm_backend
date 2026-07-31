@@ -129,6 +129,18 @@ class UserController {
     res.json(ApiResponse.success(null, 'Deletion requested successfully'));
   }
 
+  async bulkRequestDeletion(req, res) {
+    const { ids, reason } = req.body;
+    if (!reason || !reason.trim()) {
+      return res.status(400).json(ApiResponse.error('VALIDATION_ERROR', 'Reason/Remarks are required for deletion request'));
+    }
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json(ApiResponse.error('VALIDATION_ERROR', 'Please select at least one customer for deletion'));
+    }
+    const result = await userService.bulkRequestDeletion(ids, reason.trim(), req.user.id, req.user.role);
+    res.json(ApiResponse.success(result, `Deletion requested for ${result.updatedCount} customer(s).`));
+  }
+
   async addRemark(req, res) {
     const { remark } = req.body;
     if (!remark) {

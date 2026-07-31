@@ -14,7 +14,7 @@ const normalizeMobile = (mobile) => {
   } else if (digits.length === 11 && digits.startsWith('0')) {
     digits = digits.substring(1);
   }
-  return digits.length === 10 ? digits : null;
+  return digits.length > 0 ? digits : null;
 };
 
 class DuplicateUtil {

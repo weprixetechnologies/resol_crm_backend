@@ -77,6 +77,65 @@ class DeletionService {
       entityId: userId
     });
   }
+
+  async bulkApproveDeletion(userIds, adminId) {
+    if (!Array.isArray(userIds) || userIds.length === 0) return;
+    const connection = await db.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      for (const userId of userIds) {
+        const [users] = await connection.query('SELECT * FROM users WHERE id = ? AND is_deletion_requested = 1', [userId]);
+        if (users.length > 0) {
+          const user = users[0];
+          await connection.query(
+            `INSERT INTO archived_users (
+              id, name, designation, department, institute, city, state, region_type,
+              email, mobile, source, original_created_by, original_created_at, deleted_by, deletion_reason
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              user.id, user.name, user.designation, user.department, user.institute, user.city, user.state, user.region_type,
+              user.email, user.mobile, user.source, user.created_by, user.created_at, adminId, user.deletion_reason
+            ]
+          );
+          await connection.query('DELETE FROM users WHERE id = ?', [userId]);
+          await auditService.log({
+            actorId: adminId,
+            actorRole: 'admin',
+            action: 'USER_DELETION_APPROVED',
+            entityType: 'user',
+            entityId: userId,
+            meta: { reason: user.deletion_reason, isBulk: true }
+          });
+        }
+      }
+
+      await connection.commit();
+    } catch (err) {
+      await connection.rollback();
+      throw err;
+    } finally {
+      connection.release();
+    }
+  }
+
+  async bulkRejectDeletion(userIds, adminId) {
+    if (!Array.isArray(userIds) || userIds.length === 0) return;
+    await db.query(
+      'UPDATE users SET is_deletion_requested = 0, deletion_reason = NULL WHERE id IN (?) AND is_deletion_requested = 1',
+      [userIds]
+    );
+    for (const userId of userIds) {
+      await auditService.log({
+        actorId: adminId,
+        actorRole: 'admin',
+        action: 'USER_DELETION_REJECTED',
+        entityType: 'user',
+        entityId: userId,
+        meta: { isBulk: true }
+      });
+    }
+  }
 }
 
 module.exports = new DeletionService();

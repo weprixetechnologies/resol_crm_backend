@@ -7,20 +7,54 @@ class UserService {
   async createUser(payload, creatorId = null, creatorRole = 'public', overrideFuzzy = false) {
     const { name, email, mobile, city, state, designation, institute, department, region_type, country_code, remarks } = payload;
     
-    if (mobile && mobile.length > 20) {
-      const e = new Error('Mobile number cannot exceed 20 characters');
-      e.statusCode = 400;
-      throw e;
-    }
-    
     // Check duplicates
     const dupCheck = await DuplicateUtil.checkDuplicate({ email, mobile, name, city }, true);
     
-    if (dupCheck.isDuplicate) {
-      const e = new Error('Exact duplicate found (Email or Mobile)');
-      e.statusCode = 409;
-      e.code = 'EXACT_DUPLICATE';
-      throw e;
+    if (dupCheck.isDuplicate && dupCheck.user) {
+      const existingUser = dupCheck.user;
+      let remarkText = remarks && remarks.trim() ? remarks.trim() : '';
+      if (!remarkText) {
+        remarkText = `Form resubmitted with details — Name: ${name || '-'}`;
+        if (email) remarkText += `, Email: ${email}`;
+        if (mobile) remarkText += `, Mobile: ${mobile}`;
+        if (city) remarkText += `, City: ${city}`;
+        if (institute) remarkText += `, Institute: ${institute}`;
+      } else {
+        remarkText = `Resubmitted remark: ${remarkText}`;
+      }
+
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const formattedRemark = `[${dateStr} Resubmission]: ${remarkText}`;
+      const updatedRemarks = existingUser.remarks 
+        ? `${existingUser.remarks}\n${formattedRemark}`
+        : formattedRemark;
+
+      await db.query(
+        'UPDATE users SET remarks = ?, updated_at = NOW() WHERE id = ?',
+        [updatedRemarks, existingUser.id]
+      );
+
+      let remarkSource = 'staff_remark';
+      if (creatorRole === 'public') remarkSource = 'public_form';
+      else if (creatorRole === 'admin_import') remarkSource = 'import';
+
+      await db.query(
+        `INSERT INTO user_queries (user_id, remark, source, created_by, is_duplicate_log) VALUES (?, ?, ?, ?, 1)`,
+        [existingUser.id, remarkText, remarkSource, creatorId]
+      );
+
+      await auditService.log({
+        actorId: creatorId,
+        actorRole: creatorRole,
+        action: 'USER_REMARK_ADDED',
+        entityType: 'user',
+        entityId: existingUser.id,
+        meta: { isDuplicate: true, matchedField: existingUser.email_normalized === (email ? email.trim().toLowerCase() : null) ? 'email' : 'mobile' }
+      });
+
+      const resUser = await this.getUserById(existingUser.id);
+      resUser.isExistingCustomer = true;
+      return resUser;
     }
 
     if (dupCheck.possibleMatch && !overrideFuzzy) {
@@ -254,12 +288,6 @@ class UserService {
     let query = 'UPDATE users SET updated_at = NOW()';
     const params = [];
 
-    if (payload.mobile && payload.mobile.length > 20) {
-      const e = new Error('Mobile number cannot exceed 20 characters');
-      e.statusCode = 400;
-      throw e;
-    }
-
     // Handle normalizations if email/mobile changed
     if (payload.email) {
       payload.email_normalized = payload.email.trim().toLowerCase();
@@ -320,6 +348,32 @@ class UserService {
       entityId: id,
       meta: { reason }
     });
+  }
+
+  async bulkRequestDeletion(ids, reason, requesterId, requesterRole) {
+    if (!Array.isArray(ids) || ids.length === 0) {
+      const e = new Error('No user IDs provided for deletion');
+      e.statusCode = 400;
+      throw e;
+    }
+
+    const [result] = await db.query(
+      'UPDATE users SET is_deletion_requested = 1, deletion_reason = ? WHERE id IN (?) AND is_deletion_requested = 0',
+      [reason, ids]
+    );
+
+    for (const id of ids) {
+      await auditService.log({
+        actorId: requesterId,
+        actorRole: requesterRole,
+        action: 'USER_DELETION_REQUEST',
+        entityType: 'user',
+        entityId: id,
+        meta: { reason, isBulk: true }
+      });
+    }
+
+    return { updatedCount: result.affectedRows };
   }
 }
 

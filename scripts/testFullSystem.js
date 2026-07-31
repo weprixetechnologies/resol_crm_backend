@@ -1,7 +1,7 @@
 async function testFull() {
   const baseURL = 'https://apicrm.cursiveletters.in/api';
   let adminToken = '';
-  
+
   try {
     console.log('--- 1. AUTH ---');
     const loginRes = await fetch(`${baseURL}/auth/login`, {
@@ -37,7 +37,7 @@ async function testFull() {
       })
     });
     console.log('Public form 1 (New User):', await pubRes.json());
-    
+
     pubRes = await fetch(`${baseURL}/public-form/submit`, {
       method: 'POST', headers,
       body: JSON.stringify({
@@ -76,7 +76,7 @@ async function testFull() {
       headers: { Authorization: `Bearer ${adminToken}` }
     });
     console.log('Dashboard Stats:', await statsRes.json());
-    
+
     console.log('\n--- 7. AUDIT LOGS ---');
     const logsRes = await fetch(`${baseURL}/dashboard/audit-logs`, {
       headers: { Authorization: `Bearer ${adminToken}` }

@@ -16,6 +16,7 @@ router.get('/:id', asyncHandler(userController.getUserById));
 router.patch('/:id', asyncHandler(userController.updateUser));
 
 // Request deletion (usually staff, but admin can also do it directly or delete via another endpoint later)
+router.post('/bulk-request-deletion', asyncHandler(userController.bulkRequestDeletion));
 router.post('/:id/request-deletion', asyncHandler(userController.requestDeletion));
 
 // Add remark manually
