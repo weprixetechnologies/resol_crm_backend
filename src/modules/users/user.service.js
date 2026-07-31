@@ -59,7 +59,7 @@ class UserService {
 
   async getUsers(page = 1, limit = 20, requesterRole = 'staff', requesterId = null, filters = {}) {
     const offset = (page - 1) * limit;
-    let baseQuery = 'FROM users WHERE 1=1';
+    let baseQuery = 'FROM users u LEFT JOIN staff s ON u.created_by = s.id WHERE 1=1';
     const params = [];
 
     // Apply Staff Scope
@@ -72,14 +72,14 @@ class UserService {
       }
       
       if (staffScope === 'self_only' && requesterId) {
-        baseQuery += ' AND created_by = ?';
+        baseQuery += ' AND u.created_by = ?';
         params.push(requesterId);
       }
     }
 
     // Apply Search
     if (filters.search) {
-      baseQuery += ' AND (name LIKE ? OR email LIKE ? OR mobile LIKE ?)';
+      baseQuery += ' AND (u.name LIKE ? OR u.email LIKE ? OR u.mobile LIKE ?)';
       const term = `%${filters.search}%`;
       params.push(term, term, term);
     }
@@ -88,7 +88,7 @@ class UserService {
     const likeFields = ['city', 'state', 'institute', 'department', 'designation'];
     likeFields.forEach(field => {
       if (filters[field]) {
-        baseQuery += ` AND ${field} LIKE ?`;
+        baseQuery += ` AND u.${field} LIKE ?`;
         params.push(`%${filters[field]}%`);
       }
     });
@@ -96,32 +96,32 @@ class UserService {
     const exactFields = ['source', 'region_type'];
     exactFields.forEach(field => {
       if (filters[field] && filters[field] !== 'all') {
-        baseQuery += ` AND ${field} = ?`;
+        baseQuery += ` AND u.${field} = ?`;
         params.push(filters[field]);
       }
     });
 
     if (filters.is_admin_verified && filters.is_admin_verified !== 'all') {
-      baseQuery += ' AND is_admin_verified = ?';
+      baseQuery += ' AND u.is_admin_verified = ?';
       params.push(filters.is_admin_verified === '1' ? 1 : 0);
     }
 
     if (filters.is_deletion_requested && filters.is_deletion_requested !== 'all') {
-      baseQuery += ' AND is_deletion_requested = ?';
+      baseQuery += ' AND u.is_deletion_requested = ?';
       params.push(filters.is_deletion_requested === '1' ? 1 : 0);
     }
 
     if (filters.startDate) {
-      baseQuery += ' AND created_at >= ?';
+      baseQuery += ' AND u.created_at >= ?';
       params.push(`${filters.startDate} 00:00:00`);
     }
     
     if (filters.endDate) {
-      baseQuery += ' AND created_at <= ?';
+      baseQuery += ' AND u.created_at <= ?';
       params.push(`${filters.endDate} 23:59:59`);
     }
 
-    const [rows] = await db.query(`SELECT * ${baseQuery} ORDER BY created_at DESC LIMIT ? OFFSET ?`, [...params, limit, offset]);
+    const [rows] = await db.query(`SELECT u.*, s.staff_code as created_by_code ${baseQuery} ORDER BY u.created_at DESC LIMIT ? OFFSET ?`, [...params, limit, offset]);
     const [[{ total }]] = await db.query(`SELECT COUNT(*) as total ${baseQuery}`, params);
 
     return {
@@ -130,6 +130,69 @@ class UserService {
       page,
       totalPages: Math.ceil(total / limit)
     };
+  }
+
+  async getAllUsersForExport(requesterRole = 'staff', requesterId = null, filters = {}) {
+    let baseQuery = 'FROM users u LEFT JOIN staff s ON u.created_by = s.id WHERE 1=1';
+    const params = [];
+
+    if (requesterRole === 'staff') {
+      const settingsStr = await redis.get('system_settings');
+      let staffScope = 'all';
+      if (settingsStr) {
+        const settings = JSON.parse(settingsStr);
+        staffScope = settings.staff_scope || 'all';
+      }
+      if (staffScope === 'self_only' && requesterId) {
+        baseQuery += ' AND u.created_by = ?';
+        params.push(requesterId);
+      }
+    }
+
+    if (filters.search) {
+      baseQuery += ' AND (u.name LIKE ? OR u.email LIKE ? OR u.mobile LIKE ?)';
+      const term = `%${filters.search}%`;
+      params.push(term, term, term);
+    }
+
+    const likeFields = ['city', 'state', 'institute', 'department', 'designation'];
+    likeFields.forEach(field => {
+      if (filters[field]) {
+        baseQuery += ` AND u.${field} LIKE ?`;
+        params.push(`%${filters[field]}%`);
+      }
+    });
+
+    const exactFields = ['source', 'region_type'];
+    exactFields.forEach(field => {
+      if (filters[field] && filters[field] !== 'all') {
+        baseQuery += ` AND u.${field} = ?`;
+        params.push(filters[field]);
+      }
+    });
+
+    if (filters.is_admin_verified && filters.is_admin_verified !== 'all') {
+      baseQuery += ' AND u.is_admin_verified = ?';
+      params.push(filters.is_admin_verified === '1' ? 1 : 0);
+    }
+
+    if (filters.is_deletion_requested && filters.is_deletion_requested !== 'all') {
+      baseQuery += ' AND u.is_deletion_requested = ?';
+      params.push(filters.is_deletion_requested === '1' ? 1 : 0);
+    }
+
+    if (filters.startDate) {
+      baseQuery += ' AND u.created_at >= ?';
+      params.push(`${filters.startDate} 00:00:00`);
+    }
+    
+    if (filters.endDate) {
+      baseQuery += ' AND u.created_at <= ?';
+      params.push(`${filters.endDate} 23:59:59`);
+    }
+
+    const [rows] = await db.query(`SELECT u.*, s.staff_code as created_by_code ${baseQuery} ORDER BY u.created_at DESC`, params);
+    return rows;
   }
 
   async getUserById(id) {

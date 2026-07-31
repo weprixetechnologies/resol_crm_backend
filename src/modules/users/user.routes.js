@@ -11,6 +11,7 @@ router.use(authMiddleware);
 // Both staff and admin can access these (actions scoped in service)
 router.post('/', asyncHandler(userController.createUser));
 router.get('/', asyncHandler(userController.getUsers));
+router.get('/export', asyncHandler(userController.exportUsers));
 router.get('/:id', asyncHandler(userController.getUserById));
 router.patch('/:id', asyncHandler(userController.updateUser));
 
