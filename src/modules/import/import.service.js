@@ -109,7 +109,7 @@ class ImportService {
     return preview;
   }
 
-  async commitImport(rows, adminId) {
+  async commitImport(rows, userId, userRole = 'staff') {
     const connection = await db.getConnection();
     try {
       await connection.beginTransaction();
@@ -131,7 +131,7 @@ class ImportService {
         const [result] = await connection.query(
           `INSERT IGNORE INTO users (name, designation, department, institute, city, state, region_type, country_code, email, email_normalized, mobile, mobile_normalized, source, is_admin_verified, created_by, remarks)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'import', 1, ?, ?)`,
-          [row.name, row.designation, row.department, row.institute, row.city, row.state, row.region_type, safeCountryCode, safeEmail, safeEmailNorm, safeMobile, safeMobileNorm, adminId, row.remark || null]
+          [row.name, row.designation, row.department, row.institute, row.city, row.state, row.region_type, safeCountryCode, safeEmail, safeEmailNorm, safeMobile, safeMobileNorm, userId, row.remark || null]
         );
         targetUserId = result.insertId;
 
@@ -148,7 +148,7 @@ class ImportService {
         if (row.remark) {
           await connection.query(
             `INSERT INTO user_queries (user_id, remark, source, created_by) VALUES (?, ?, 'import', ?)`,
-            [targetUserId, row.remark, adminId]
+            [targetUserId, row.remark, userId]
           );
         }
 
@@ -156,8 +156,8 @@ class ImportService {
       }
 
       await auditService.log({
-        actorId: adminId,
-        actorRole: 'admin',
+        actorId: userId,
+        actorRole: userRole || 'staff',
         action: 'IMPORT_COMMIT',
         entityType: 'batch',
         meta: { count: insertedCount }

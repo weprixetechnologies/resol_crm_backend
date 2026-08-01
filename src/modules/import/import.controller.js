@@ -17,7 +17,7 @@ class ImportController {
       return res.status(400).json(ApiResponse.error('VALIDATION_ERROR', 'No rows provided for commit'));
     }
     
-    const result = await importService.commitImport(rows, req.user.id);
+    const result = await importService.commitImport(rows, req.user.id, req.user.role);
     res.json(ApiResponse.success(result, `Successfully imported ${result.count} records`));
   }
 }

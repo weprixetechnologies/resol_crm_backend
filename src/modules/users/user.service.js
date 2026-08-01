@@ -11,6 +11,14 @@ class UserService {
     const dupCheck = await DuplicateUtil.checkDuplicate({ email, mobile, name, city }, true);
     
     if (dupCheck.isDuplicate && dupCheck.user) {
+      if (creatorRole === 'public') {
+        const e = new Error('Customer Exist');
+        e.statusCode = 409;
+        e.code = 'CUSTOMER_EXISTS';
+        e.matchedField = dupCheck.user.email_normalized === (email ? email.trim().toLowerCase() : null) ? 'email' : 'mobile';
+        throw e;
+      }
+
       const existingUser = dupCheck.user;
       let remarkText = remarks && remarks.trim() ? remarks.trim() : '';
       if (!remarkText) {
@@ -35,8 +43,7 @@ class UserService {
       );
 
       let remarkSource = 'staff_remark';
-      if (creatorRole === 'public') remarkSource = 'public_form';
-      else if (creatorRole === 'admin_import') remarkSource = 'import';
+      if (creatorRole === 'admin_import') remarkSource = 'import';
 
       await db.query(
         `INSERT INTO user_queries (user_id, remark, source, created_by, is_duplicate_log) VALUES (?, ?, ?, ?, 1)`,

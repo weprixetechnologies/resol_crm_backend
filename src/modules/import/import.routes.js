@@ -8,8 +8,8 @@ const asyncHandler = require('../../middlewares/asyncHandler');
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
-// Admin only
-router.use(authMiddleware, requireRole('admin'));
+// Admin & Staff allowed
+router.use(authMiddleware, requireRole(['admin', 'staff']));
 
 router.post('/preview', upload.single('file'), asyncHandler(importController.preview));
 router.post('/commit', asyncHandler(importController.commit));
