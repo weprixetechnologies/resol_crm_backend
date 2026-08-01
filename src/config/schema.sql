@@ -30,6 +30,9 @@ CREATE TABLE IF NOT EXISTS users (
   email_normalized VARCHAR(150) NULL,
   mobile          VARCHAR(20) NULL,
   mobile_normalized VARCHAR(20) NULL,
+  status          ENUM('active','unverified') NOT NULL DEFAULT 'active',
+  tag1            VARCHAR(255) NULL,
+  tag2            VARCHAR(255) NULL,
   source          ENUM('manual','import','public_form') NOT NULL DEFAULT 'manual',
   created_by      INT UNSIGNED NULL,
   import_batch_id BIGINT UNSIGNED NULL,
@@ -43,6 +46,7 @@ CREATE TABLE IF NOT EXISTS users (
   INDEX idx_users_city (city),
   INDEX idx_users_region (region_type),
   INDEX idx_users_source (source),
+  INDEX idx_users_status (status),
   FULLTEXT INDEX ft_users_search (name, institute, department)
 );
 
@@ -58,6 +62,9 @@ CREATE TABLE IF NOT EXISTS archived_users (
   country_code       VARCHAR(10) NULL,
   email              VARCHAR(150) NULL,
   mobile             VARCHAR(20) NULL,
+  status             ENUM('active','unverified') NULL,
+  tag1               VARCHAR(255) NULL,
+  tag2               VARCHAR(255) NULL,
   source             ENUM('manual','import','public_form') NOT NULL,
   original_created_by INT UNSIGNED NULL,
   original_created_at DATETIME NOT NULL,

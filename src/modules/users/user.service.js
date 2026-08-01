@@ -5,7 +5,7 @@ const { DuplicateUtil } = require('./duplicate.util');
 
 class UserService {
   async createUser(payload, creatorId = null, creatorRole = 'public', overrideFuzzy = false) {
-    const { name, email, mobile, city, state, designation, institute, department, region_type, country_code, remarks } = payload;
+    const { name, email, mobile, city, state, designation, institute, department, region_type, country_code, remarks, status, tag1, tag2 } = payload;
     
     // Check duplicates
     const dupCheck = await DuplicateUtil.checkDuplicate({ email, mobile, name, city }, true);
@@ -78,10 +78,14 @@ class UserService {
     if (creatorRole === 'public') source = 'public_form';
     else if (creatorRole === 'admin_import') source = 'import';
     
+    const userStatus = (status && status.toString().toLowerCase() === 'unverified') ? 'unverified' : 'active';
+    const tag1Val = tag1 ? tag1.toString().trim() : null;
+    const tag2Val = tag2 ? tag2.toString().trim() : null;
+
     const [result] = await db.query(
-      `INSERT INTO users (name, designation, department, institute, city, state, region_type, country_code, email, email_normalized, mobile, mobile_normalized, source, created_by, remarks)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [name, designation, department, institute, city, state, region_type, country_code, email, emailNorm, mobile, mobileNorm, source, creatorId, remarks || null]
+      `INSERT INTO users (name, designation, department, institute, city, state, region_type, country_code, email, email_normalized, mobile, mobile_normalized, status, tag1, tag2, source, created_by, remarks)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [name, designation, department, institute, city, state, region_type, country_code, email, emailNorm, mobile, mobileNorm, userStatus, tag1Val, tag2Val, source, creatorId, remarks || null]
     );
 
     const newUserId = result.insertId;
@@ -120,13 +124,13 @@ class UserService {
 
     // Apply Search
     if (filters.search) {
-      baseQuery += ' AND (u.name LIKE ? OR u.email LIKE ? OR u.mobile LIKE ?)';
+      baseQuery += ' AND (u.name LIKE ? OR u.email LIKE ? OR u.mobile LIKE ? OR u.tag1 LIKE ? OR u.tag2 LIKE ?)';
       const term = `%${filters.search}%`;
-      params.push(term, term, term);
+      params.push(term, term, term, term, term);
     }
 
     // Apply Advanced Filters
-    const likeFields = ['city', 'state', 'institute', 'department', 'designation'];
+    const likeFields = ['city', 'state', 'institute', 'department', 'designation', 'tag1', 'tag2'];
     likeFields.forEach(field => {
       if (filters[field]) {
         baseQuery += ` AND u.${field} LIKE ?`;
@@ -134,7 +138,7 @@ class UserService {
       }
     });
 
-    const exactFields = ['source', 'region_type'];
+    const exactFields = ['source', 'region_type', 'status'];
     exactFields.forEach(field => {
       if (filters[field] && filters[field] !== 'all') {
         baseQuery += ` AND u.${field} = ?`;
@@ -191,12 +195,12 @@ class UserService {
     }
 
     if (filters.search) {
-      baseQuery += ' AND (u.name LIKE ? OR u.email LIKE ? OR u.mobile LIKE ?)';
+      baseQuery += ' AND (u.name LIKE ? OR u.email LIKE ? OR u.mobile LIKE ? OR u.tag1 LIKE ? OR u.tag2 LIKE ?)';
       const term = `%${filters.search}%`;
-      params.push(term, term, term);
+      params.push(term, term, term, term, term);
     }
 
-    const likeFields = ['city', 'state', 'institute', 'department', 'designation'];
+    const likeFields = ['city', 'state', 'institute', 'department', 'designation', 'tag1', 'tag2'];
     likeFields.forEach(field => {
       if (filters[field]) {
         baseQuery += ` AND u.${field} LIKE ?`;
@@ -204,7 +208,7 @@ class UserService {
       }
     });
 
-    const exactFields = ['source', 'region_type'];
+    const exactFields = ['source', 'region_type', 'status'];
     exactFields.forEach(field => {
       if (filters[field] && filters[field] !== 'all') {
         baseQuery += ` AND u.${field} = ?`;
@@ -287,9 +291,13 @@ class UserService {
 
   async updateUser(id, payload, updaterId, updaterRole) {
     // Determine allowed fields based on role
-    const allowedFields = ['name', 'designation', 'department', 'institute', 'city', 'state', 'region_type', 'country_code', 'email', 'mobile', 'remarks'];
+    const allowedFields = ['name', 'designation', 'department', 'institute', 'city', 'state', 'region_type', 'country_code', 'email', 'mobile', 'remarks', 'status', 'tag1', 'tag2'];
     if (updaterRole === 'admin') {
       allowedFields.push('is_admin_verified');
+    }
+
+    if (payload.status !== undefined) {
+      payload.status = (payload.status && payload.status.toString().toLowerCase() === 'unverified') ? 'unverified' : 'active';
     }
 
     let query = 'UPDATE users SET updated_at = NOW()';

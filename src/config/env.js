@@ -11,9 +11,9 @@ for (const env of requiredEnvs) {
 module.exports = {
   PORT: process.env.PORT || 9822,
   DB_HOST: process.env.DB_HOST || '127.0.0.1',
-  DB_USER: process.env.DB_USER || 'adminuser',
-  DB_PASSWORD: process.env.DB_PASSWORD || 'Vishal@13241',
-  DB_NAME: process.env.DB_NAME || 'resol_crm',
+  DB_USER: process.env.DB_USER || 'root',
+  DB_PASSWORD: process.env.DB_PASSWORD || 'rseditz@222',
+  DB_NAME: process.env.DB_NAME || 'vishalji_crm',
   REDIS_URL: process.env.REDIS_URL || 'redis://127.0.0.1:6379',
   JWT_ACCESS_SECRET: process.env.JWT_ACCESS_SECRET || 'dev-access-secret',
   JWT_REFRESH_SECRET: process.env.JWT_REFRESH_SECRET || 'dev-refresh-secret',

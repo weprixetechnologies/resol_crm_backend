@@ -28,6 +28,9 @@ class ImportService {
         else if (['institute', 'company', 'organization'].includes(normalized)) headerMap.institute = colIdx;
         else if (['department', 'dept'].includes(normalized)) headerMap.department = colIdx;
         else if (['region', 'regiontype'].includes(normalized)) headerMap.region_type = colIdx;
+        else if (['status', 'customerstatus', 'userstatus'].includes(normalized)) headerMap.status = colIdx;
+        else if (['tag1', 'tag 1', 'tag_1'].includes(normalized)) headerMap.tag1 = colIdx;
+        else if (['tag2', 'tag 2', 'tag_2'].includes(normalized)) headerMap.tag2 = colIdx;
         else if (['remark', 'remarks', 'notes', 'comment'].includes(normalized)) headerMap.remark = colIdx;
       });
     }
@@ -36,7 +39,7 @@ class ImportService {
       if (rowNumber === 1) return; // skip headers
       
       const vals = row.values;
-      let name, email, mobile, country_code, city, state, designation, institute, department, region, remark;
+      let name, email, mobile, country_code, city, state, designation, institute, department, region, statusVal, tag1Val, tag2Val, remark;
 
       if (Object.keys(headerMap).length > 0) {
         name = headerMap.name ? vals[headerMap.name] : null;
@@ -49,9 +52,14 @@ class ImportService {
         institute = headerMap.institute ? vals[headerMap.institute] : null;
         department = headerMap.department ? vals[headerMap.department] : null;
         region = headerMap.region_type ? vals[headerMap.region_type] : null;
+        statusVal = headerMap.status ? vals[headerMap.status] : null;
+        tag1Val = headerMap.tag1 ? vals[headerMap.tag1] : null;
+        tag2Val = headerMap.tag2 ? vals[headerMap.tag2] : null;
         remark = headerMap.remark ? vals[headerMap.remark] : null;
       } else {
-        if (vals.length >= 11) {
+        if (vals.length >= 14) {
+          [_, name, email, mobile, country_code, city, state, designation, institute, department, region, statusVal, tag1Val, tag2Val, remark] = vals;
+        } else if (vals.length >= 11) {
           [_, name, email, mobile, country_code, city, state, designation, institute, department, region, remark] = vals;
         } else {
           [_, name, email, mobile, city, state, designation, institute, department, region, remark] = vals;
@@ -62,6 +70,8 @@ class ImportService {
       if (parsedCode && !parsedCode.startsWith('+') && !isNaN(parsedCode)) {
         parsedCode = '+' + parsedCode;
       }
+
+      const parsedStatus = (statusVal && statusVal.toString().trim().toLowerCase() === 'unverified') ? 'unverified' : 'active';
 
       results.push({
         rowNumber,
@@ -75,6 +85,9 @@ class ImportService {
         institute: institute?.toString() || '',
         department: department?.toString() || '',
         region_type: region?.toString().toLowerCase() === 'abroad' ? 'abroad' : 'indian',
+        user_status: parsedStatus,
+        tag1: tag1Val?.toString().trim() || '',
+        tag2: tag2Val?.toString().trim() || '',
         remark: remark?.toString() || ''
       });
     });
@@ -125,13 +138,16 @@ class ImportService {
         const safeEmail = row.email ? row.email.substring(0, 150) : null;
         const safeEmailNorm = emailNorm ? emailNorm.substring(0, 150) : null;
         const safeCountryCode = row.country_code ? row.country_code.substring(0, 10) : null;
+        const userStatus = (row.user_status === 'unverified' || row.status_value === 'unverified') ? 'unverified' : 'active';
+        const tag1Val = row.tag1 || null;
+        const tag2Val = row.tag2 || null;
 
         let targetUserId = null;
 
         const [result] = await connection.query(
-          `INSERT IGNORE INTO users (name, designation, department, institute, city, state, region_type, country_code, email, email_normalized, mobile, mobile_normalized, source, is_admin_verified, created_by, remarks)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'import', 1, ?, ?)`,
-          [row.name, row.designation, row.department, row.institute, row.city, row.state, row.region_type, safeCountryCode, safeEmail, safeEmailNorm, safeMobile, safeMobileNorm, userId, row.remark || null]
+          `INSERT IGNORE INTO users (name, designation, department, institute, city, state, region_type, country_code, email, email_normalized, mobile, mobile_normalized, status, tag1, tag2, source, is_admin_verified, created_by, remarks)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'import', 1, ?, ?)`,
+          [row.name, row.designation, row.department, row.institute, row.city, row.state, row.region_type, safeCountryCode, safeEmail, safeEmailNorm, safeMobile, safeMobileNorm, userStatus, tag1Val, tag2Val, userId, row.remark || null]
         );
         targetUserId = result.insertId;
 
