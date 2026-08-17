@@ -137,7 +137,44 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   INDEX idx_audit_created_at (created_at)
 );
 
+CREATE TABLE IF NOT EXISTS email_templates (
+  id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name          VARCHAR(200) NOT NULL,
+  subject       VARCHAR(255) NOT NULL,
+  body_html     LONGTEXT NOT NULL,
+  design_json   JSON NULL,
+  created_by    INT UNSIGNED NULL,
+  created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_template_name (name)
+);
+
+CREATE TABLE IF NOT EXISTS email_logs (
+  id              BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  recipient_email VARCHAR(200) NOT NULL,
+  recipient_name  VARCHAR(150) NULL,
+  user_id         BIGINT UNSIGNED NULL,
+  template_id     INT UNSIGNED NULL,
+  subject         VARCHAR(255) NOT NULL,
+  status          ENUM('sent','failed') NOT NULL DEFAULT 'sent',
+  error_message   TEXT NULL,
+  sent_by         INT UNSIGNED NULL,
+  created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_email_logs_status (status),
+  INDEX idx_email_logs_user (user_id),
+  INDEX idx_email_logs_created (created_at)
+);
+
 INSERT IGNORE INTO system_settings (setting_key, setting_value) VALUES 
   ('form_submission_enabled', 'true'),
   ('staff_scope', 'all'),
-  ('staff_login_enabled', 'true');
+  ('staff_login_enabled', 'true'),
+  ('smtp_host', 'smtp.gmail.com'),
+  ('smtp_port', '587'),
+  ('smtp_secure', 'false'),
+  ('smtp_user', 'ithyaraa.official@gmail.com'),
+  ('smtp_pass', 'kvolsposhoxctyto'),
+  ('smtp_from_email', 'ithyaraa.official@gmail.com'),
+  ('smtp_from_name', 'ithyaraa');
+
+

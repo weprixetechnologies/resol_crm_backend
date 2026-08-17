@@ -30,6 +30,7 @@ const settingsRoutes = require('./modules/settings/settings.routes');
 const sessionRoutes = require('./modules/sessions/session.routes');
 const importRoutes = require('./modules/import/import.routes');
 const dashboardRoutes = require('./modules/dashboard/dashboard.routes');
+const mailRoutes = require('./modules/mail/mail.routes');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/staff', staffRoutes);
@@ -40,6 +41,7 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/sessions', sessionRoutes);
 app.use('/api/import', importRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/mail', mailRoutes);
 
 // 404 Handler
 app.use((req, res, next) => {

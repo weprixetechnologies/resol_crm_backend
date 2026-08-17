@@ -138,6 +138,11 @@ class UserService {
       }
     });
 
+    if (filters.staff_code) {
+      baseQuery += ' AND s.staff_code LIKE ?';
+      params.push(`%${filters.staff_code}%`);
+    }
+
     const exactFields = ['source', 'region_type', 'status'];
     exactFields.forEach(field => {
       if (filters[field] && filters[field] !== 'all') {
@@ -207,6 +212,11 @@ class UserService {
         params.push(`%${filters[field]}%`);
       }
     });
+
+    if (filters.staff_code) {
+      baseQuery += ' AND s.staff_code LIKE ?';
+      params.push(`%${filters.staff_code}%`);
+    }
 
     const exactFields = ['source', 'region_type', 'status'];
     exactFields.forEach(field => {

@@ -24,27 +24,29 @@ class SettingsService {
   }
 
   async updateSettings(payload, adminId) {
-    const { form_submission_enabled, staff_scope } = payload;
     const connection = await db.getConnection();
     
     try {
       await connection.beginTransaction();
 
       const updates = {};
-      if (form_submission_enabled !== undefined) {
-        await connection.query(
-          'UPDATE system_settings SET setting_value = ?, updated_by = ? WHERE setting_key = "form_submission_enabled"',
-          [form_submission_enabled ? 'true' : 'false', adminId]
-        );
-        updates.form_submission_enabled = form_submission_enabled;
-      }
+      for (const [key, val] of Object.entries(payload)) {
+        let stringVal = val;
+        if (typeof val === 'boolean') {
+          stringVal = val ? 'true' : 'false';
+        } else if (val === null || val === undefined) {
+          stringVal = '';
+        } else {
+          stringVal = String(val);
+        }
 
-      if (staff_scope !== undefined) {
         await connection.query(
-          'UPDATE system_settings SET setting_value = ?, updated_by = ? WHERE setting_key = "staff_scope"',
-          [staff_scope, adminId]
+          `INSERT INTO system_settings (setting_key, setting_value, updated_by)
+           VALUES (?, ?, ?)
+           ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_by = VALUES(updated_by)`,
+          [key, stringVal, adminId]
         );
-        updates.staff_scope = staff_scope;
+        updates[key] = stringVal;
       }
 
       await connection.commit();

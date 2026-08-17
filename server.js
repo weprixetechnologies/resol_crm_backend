@@ -24,6 +24,9 @@ const startServer = async () => {
     
     // Redis connection is handled in config/redis.js, we assume it's connecting in the background
     
+    // Initialize BullMQ Email Worker
+    require('./src/workers/email.worker');
+
     app.listen(env.PORT, () => {
       console.log(`Server running on port ${env.PORT}`);
     });
