@@ -26,7 +26,7 @@ const emailWorker = new Worker(
       // Update log to 'sent'
       if (logId) {
         await db.query(
-          `UPDATE email_logs SET status = 'sent', updated_at = NOW() WHERE id = ?`,
+          `UPDATE email_logs SET status = 'sent', error_message = NULL WHERE id = ?`,
           [logId]
         );
       } else {
