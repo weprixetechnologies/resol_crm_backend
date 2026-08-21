@@ -74,7 +74,7 @@ class UserController {
       { header: 'Designation', key: 'designation', width: 20 },
       { header: 'Institute', key: 'institute', width: 25 },
       { header: 'Department', key: 'department', width: 20 },
-      { header: 'Region Type', key: 'region_type', width: 15 },
+      { header: 'Country', key: 'country', width: 15 },
       { header: 'Source', key: 'source', width: 15 },
       { header: 'Staff Code', key: 'created_by_code', width: 15 },
       { header: 'Admin Verified', key: 'is_admin_verified', width: 15 },
@@ -84,6 +84,13 @@ class UserController {
     ];
 
     users.forEach(u => {
+      let countryVal = 'Indian';
+      if (u.region_type === 'abroad' || u.region_type === 'foreign') {
+        countryVal = 'Abroad';
+      } else if (u.region_type) {
+        countryVal = u.region_type.charAt(0).toUpperCase() + u.region_type.slice(1);
+      }
+
       worksheet.addRow({
         id: u.id,
         name: u.name,
@@ -98,7 +105,7 @@ class UserController {
         designation: u.designation || '',
         institute: u.institute || '',
         department: u.department || '',
-        region_type: u.region_type || '',
+        country: countryVal,
         source: u.source || '',
         created_by_code: u.created_by_code || '',
         is_admin_verified: u.is_admin_verified === 1 ? 'Yes' : 'No',

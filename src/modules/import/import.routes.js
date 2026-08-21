@@ -6,7 +6,10 @@ const requireRole = require('../../middlewares/role.middleware');
 const asyncHandler = require('../../middlewares/asyncHandler');
 
 const router = express.Router();
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({ 
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 100 * 1024 * 1024 } // 100MB
+});
 
 // Admin & Staff allowed
 router.use(authMiddleware, requireRole(['admin', 'staff']));

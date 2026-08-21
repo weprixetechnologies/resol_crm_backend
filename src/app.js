@@ -13,8 +13,8 @@ app.use(helmet());
 app.use(cors({ origin: true, credentials: true }));
 app.use(compression()); // Gzip compression
 app.use(morgan('dev')); // API analytics & request logging
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
 // Health Check
 app.get('/api/health', (req, res) => {
