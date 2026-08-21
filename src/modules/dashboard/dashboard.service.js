@@ -2,7 +2,7 @@ const db = require('../../config/db');
 const redis = require('../../config/redis');
 
 class DashboardService {
-  async getStats(user, range = '7d') {
+  async getStats(user, range = '7d', contactOptions = {}) {
     let dbStatus = 'Connected';
     let redisStatus = 'Connected';
 
@@ -22,6 +22,63 @@ class DashboardService {
       database: dbStatus,
       redis: redisStatus,
       api: 'Connected' // If they can hit this endpoint, API is connected
+    };
+
+    // Calculate Contacts Created Stats based on dynamic value and unit (hours/days)
+    const unit = contactOptions.contactUnit === 'days' ? 'days' : 'hours';
+    const rawVal = parseInt(contactOptions.contactValue);
+    const value = Math.max(1, Math.min(365 * 24, isNaN(rawVal) ? (unit === 'days' ? 7 : 24) : rawVal));
+
+    let contactDateSelect, contactGroupClause, contactIntervalClause;
+    if (unit === 'days') {
+      contactDateSelect = "DATE_FORMAT(created_at, '%Y-%m-%d') as date";
+      contactGroupClause = "DATE_FORMAT(created_at, '%Y-%m-%d')";
+      contactIntervalClause = `INTERVAL ${value} DAY`;
+    } else {
+      contactIntervalClause = `INTERVAL ${value} HOUR`;
+      if (value > 48) {
+        contactDateSelect = "DATE_FORMAT(created_at, '%Y-%m-%d') as date";
+        contactGroupClause = "DATE_FORMAT(created_at, '%Y-%m-%d')";
+      } else {
+        contactDateSelect = "DATE_FORMAT(created_at, '%Y-%m-%d %H:00:00') as date";
+        contactGroupClause = "DATE_FORMAT(created_at, '%Y-%m-%d %H:00:00')";
+      }
+    }
+
+    let contactWhere = `created_at >= NOW() - ${contactIntervalClause}`;
+    const contactParams = [];
+    if (user.role !== 'admin') {
+      const settingsStr = await redis.get('system_settings');
+      let staffScope = 'all';
+      if (settingsStr) {
+        const settings = JSON.parse(settingsStr);
+        staffScope = settings.staff_scope || 'all';
+      }
+      if (staffScope === 'self_only') {
+        contactWhere += ` AND created_by = ?`;
+        contactParams.push(user.id);
+      }
+    }
+
+    const [[{ contactsCount }]] = await db.query(
+      `SELECT COUNT(*) as contactsCount FROM users WHERE ${contactWhere}`,
+      contactParams
+    );
+
+    const [contactChartRows] = await db.query(
+      `SELECT ${contactDateSelect}, COUNT(*) as count 
+       FROM users 
+       WHERE ${contactWhere} 
+       GROUP BY ${contactGroupClause} 
+       ORDER BY ${contactGroupClause} ASC`,
+      contactParams
+    );
+
+    const contactsCreatedStats = {
+      total: contactsCount || 0,
+      value,
+      unit,
+      chartData: contactChartRows || []
     };
 
     if (user.role === 'admin') {
@@ -75,6 +132,7 @@ class DashboardService {
         totalUsers,
         pendingDeletions,
         archivedUsers,
+        contactsCreatedStats,
         chartData: chartDataRows,
         recentLogs,
         systemHealth
@@ -98,6 +156,7 @@ class DashboardService {
         totalUsers,
         myTotalUsers,
         myTodayUsers,
+        contactsCreatedStats,
         chartData: chartDataRows,
         recentLogs: [], // Staff don't see audit logs
         systemHealth
