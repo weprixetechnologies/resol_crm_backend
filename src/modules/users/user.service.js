@@ -124,9 +124,9 @@ class UserService {
 
     // Apply Search
     if (filters.search) {
-      baseQuery += ' AND (u.name LIKE ? OR u.email LIKE ? OR u.mobile LIKE ? OR u.tag1 LIKE ? OR u.tag2 LIKE ?)';
+      baseQuery += ' AND (u.name LIKE ? OR u.email LIKE ? OR u.mobile LIKE ? OR u.city LIKE ? OR u.institute LIKE ? OR u.department LIKE ? OR u.designation LIKE ? OR u.tag1 LIKE ? OR u.tag2 LIKE ? OR s.staff_code LIKE ?)';
       const term = `%${filters.search}%`;
-      params.push(term, term, term, term, term);
+      params.push(term, term, term, term, term, term, term, term, term, term);
     }
 
     // Apply Advanced Filters

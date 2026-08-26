@@ -117,7 +117,7 @@ class MailService {
 
   // --- SEND EMAIL ---
   async sendMail(payload, senderId) {
-    const { customerIds, customEmails, templateId, subject, body_html } = payload;
+    const { customerIds, customEmails, sendToAll, filterCriteria, templateId, subject, body_html } = payload;
 
     if (!subject || !body_html) {
       const err = new Error('Subject and Mail Body content are required');
@@ -128,7 +128,41 @@ class MailService {
     // Build recipient list
     let recipientsList = []; // [{ email, name, user_id, customerObj }]
 
-    if (Array.isArray(customerIds) && customerIds.length > 0) {
+    if (sendToAll) {
+      const [customers] = await db.query(
+        `SELECT u.*, s.staff_code as created_by_code
+         FROM users u
+         LEFT JOIN staff s ON u.created_by = s.id
+         WHERE u.email IS NOT NULL AND u.email != '' AND (u.is_opted_out IS NULL OR u.is_opted_out = 0) AND (u.email_invalid IS NULL OR u.email_invalid = 0)`
+      );
+
+      for (const cust of customers) {
+        if (cust.email && cust.email.trim()) {
+          recipientsList.push({
+            email: cust.email.trim(),
+            name: cust.name,
+            user_id: cust.id,
+            customerObj: cust
+          });
+        }
+      }
+    } else if (filterCriteria && typeof filterCriteria === 'object' && (filterCriteria.search || filterCriteria.staff_code || filterCriteria.tag1 || filterCriteria.city || filterCriteria.institute)) {
+      const userService = require('../users/user.service');
+      const customers = await userService.getAllUsersForExport('admin', senderId, filterCriteria);
+
+      for (const cust of customers) {
+        if (cust.email && cust.email.trim() && !cust.is_opted_out && !cust.email_invalid) {
+          if (!recipientsList.some(r => r.email.toLowerCase() === cust.email.trim().toLowerCase())) {
+            recipientsList.push({
+              email: cust.email.trim(),
+              name: cust.name,
+              user_id: cust.id,
+              customerObj: cust
+            });
+          }
+        }
+      }
+    } else if (Array.isArray(customerIds) && customerIds.length > 0) {
       const [customers] = await db.query(
         `SELECT u.*, s.staff_code as created_by_code
          FROM users u
