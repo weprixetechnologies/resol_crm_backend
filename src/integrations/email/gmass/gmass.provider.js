@@ -96,7 +96,7 @@ class GMassProvider extends EmailProvider {
     } catch (cErr) {
       console.warn('[GMass Provider] Campaign launch response:', cErr.message);
       campaignResponse = {
-        campaignId: draftId || `cmp_${Date.now()}`,
+        campaignId: draftId || null,
         status: 'queued_in_gmass',
         message: cErr.message
       };

@@ -27,7 +27,7 @@ class GMassReconciliationJob {
       const [campaigns] = await db.query(
         `SELECT id, name, gmass_campaign_id, created_at
          FROM email_campaigns
-         WHERE status = 'sent' AND gmass_campaign_id IS NOT NULL AND gmass_campaign_id != ''
+         WHERE status = 'sent' AND gmass_campaign_id IS NOT NULL AND gmass_campaign_id != '' AND gmass_campaign_id NOT LIKE 'cmp_%'
            AND created_at >= NOW() - INTERVAL 30 DAY`
       );
 
