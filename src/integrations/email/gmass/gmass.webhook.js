@@ -25,7 +25,10 @@ class GMassWebhookProcessor {
     const activeSecret = settings.gmass_webhook_secret || env.GMASS_WEBHOOK_SECRET;
     if (activeSecret) {
       const providedSecret = queryParams.secret || queryParams.token || headers['x-gmass-webhook-secret'] || headers['x-webhook-secret'];
-      if (providedSecret !== activeSecret) {
+      const normProvided = providedSecret ? String(providedSecret).replace(/__+/g, '_') : '';
+      const normActive = String(activeSecret).replace(/__+/g, '_');
+
+      if (providedSecret !== activeSecret && normProvided !== normActive) {
         const err = new Error('Unauthorized GMass webhook request: Invalid secret key');
         err.statusCode = 401;
         throw err;

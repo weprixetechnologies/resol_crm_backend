@@ -20,8 +20,8 @@ function normalizeWebhookPayload(rawPayload) {
     };
   }
 
-  // Extract Campaign ID (cases: campaignId, CampaignID, campaign_id, CampaignId)
-  const campaignId = rawPayload.campaignId || rawPayload.CampaignID || rawPayload.campaign_id || rawPayload.CampaignId || null;
+  // Extract Campaign ID or Transactional ID (cases: campaignId, CampaignID, campaign_id, CampaignId, transactionalEmailId, TransactionalEmailID, transactionId)
+  const campaignId = rawPayload.campaignId || rawPayload.CampaignID || rawPayload.campaign_id || rawPayload.CampaignId || rawPayload.transactionalEmailId || rawPayload.TransactionalEmailID || rawPayload.transactional_email_id || rawPayload.transactionId || rawPayload.TransactionID || null;
 
   // Extract Email Address (cases: email, emailAddress, Email, EmailAddress, recipient)
   const email = (rawPayload.email || rawPayload.emailAddress || rawPayload.Email || rawPayload.EmailAddress || rawPayload.recipient || '').trim().toLowerCase();

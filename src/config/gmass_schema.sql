@@ -62,3 +62,11 @@ CREATE TABLE IF NOT EXISTS email_events (
   INDEX idx_event_contact (contact_id),
   INDEX idx_event_type (event_type)
 );
+
+-- Seed GMass System Settings
+INSERT IGNORE INTO system_settings (setting_key, setting_value) VALUES 
+  ('gmass_api_key', '4e004d3a-1cb8-4b24-9cce-4c751fa6e8ec'),
+  ('gmass_webhook_secret', 'gmass_crm_secret__2026'),
+  ('gmass_webhook_enabled', 'true'),
+  ('gmass_polling_enabled', 'true')
+ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value);

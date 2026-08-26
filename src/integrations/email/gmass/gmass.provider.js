@@ -22,6 +22,9 @@ class GMassProvider extends EmailProvider {
     const fromEmail = options.from || env.SMTP_FROM_EMAIL || 'vishal0077@gmail.com';
     const fromName = options.fromName || env.SMTP_FROM_NAME || 'Resol Global';
 
+    const webhookSecret = env.GMASS_WEBHOOK_SECRET || 'gmass_crm_secret_2026';
+    const defaultWebhookUrl = `https://apicrm.cursiveletters.in/api/webhooks/gmass?secret=${webhookSecret}`;
+
     const payload = {
       to: options.to,
       emailAddress: options.to,
@@ -30,6 +33,14 @@ class GMassProvider extends EmailProvider {
       subject: options.subject,
       html: options.html,
       message: options.html,
+      openTrack: true,
+      clickTrack: true,
+      openTracking: true,
+      clickTracking: true,
+      trackOpens: true,
+      trackClicks: true,
+      webhookUrl: options.webhookUrl || defaultWebhookUrl,
+      webhook: options.webhookUrl || defaultWebhookUrl,
       ...(options.campaignIdToReplyTo ? { campaignIdToReplyTo: options.campaignIdToReplyTo } : {})
     };
 
@@ -42,6 +53,10 @@ class GMassProvider extends EmailProvider {
   }
 
   async sendCampaign(campaign) {
+    const env = require('../../../config/env');
+    const webhookSecret = env.GMASS_WEBHOOK_SECRET || 'gmass_crm_secret_2026';
+    const defaultWebhookUrl = `https://apicrm.cursiveletters.in/api/webhooks/gmass?secret=${webhookSecret}`;
+
     const { subject, bodyHtml, recipients, options = {} } = campaign;
     const emailAddresses = recipients.map(r => r.email).join(',');
 
@@ -51,6 +66,10 @@ class GMassProvider extends EmailProvider {
       emailAddresses,
       openTracking: options.openTracking !== false,
       clickTracking: options.clickTracking !== false,
+      trackOpens: true,
+      trackClicks: true,
+      webhookUrl: options.webhookUrl || defaultWebhookUrl,
+      webhook: options.webhookUrl || defaultWebhookUrl,
       ...options
     };
 

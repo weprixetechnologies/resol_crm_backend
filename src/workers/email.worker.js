@@ -38,6 +38,18 @@ const emailWorker = new Worker(
         );
       }
 
+      // Record Send event in email_events for live feed visibility
+      try {
+        await db.query(
+          `INSERT INTO email_events (campaign_id, contact_id, recipient_email, event_type, event_source, event_at)
+           VALUES (NULL, ?, ?, 'Send', 'worker', NOW())
+           ON DUPLICATE KEY UPDATE event_at = VALUES(event_at)`,
+          [recipient.user_id || null, recipientEmail]
+        );
+      } catch (eErr) {
+        console.warn('[Email Worker] Event log warning:', eErr.message);
+      }
+
       return { recipient: recipient.email, status: 'sent' };
     } catch (err) {
       const errorMessage = err.message || 'GMass dispatch failed';

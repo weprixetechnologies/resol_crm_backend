@@ -248,6 +248,20 @@ class CampaignService {
         [campaignId]
       );
 
+      // Record Send events in email_events for Live Feed visibility
+      for (const r of recipients) {
+        try {
+          await db.query(
+            `INSERT INTO email_events (campaign_id, contact_id, recipient_email, event_type, event_source, event_at)
+             VALUES (?, ?, ?, 'Send', 'worker', NOW())
+             ON DUPLICATE KEY UPDATE event_at = VALUES(event_at)`,
+            [campaignId, r.contact_id || null, r.email_address]
+          );
+        } catch (evErr) {
+          console.warn('[Campaign Service] Event log warning:', evErr.message);
+        }
+      }
+
       await auditService.log({
         actorId: senderId,
         actorRole: 'admin',
@@ -390,17 +404,28 @@ class CampaignService {
    * Get global email tracking KPIs, lead conversions, and real-time event feed
    */
   async getGlobalTrackingSummary() {
-    // 1. Total Sent, Opened, Clicked, Replied across all campaign recipients
-    const [[recipientStats]] = await db.query(`
+    // 1. Total Sent, Opened, Clicked, Replied across campaign recipients and email logs
+    const [[campaignRecipientStats]] = await db.query(`
       SELECT 
         COUNT(*) as total_recipients,
-        SUM(CASE WHEN status IN ('sent', 'opened', 'clicked', 'replied') THEN 1 ELSE 0 END) as total_sent,
-        SUM(CASE WHEN status IN ('opened', 'clicked', 'replied') OR opened_at IS NOT NULL THEN 1 ELSE 0 END) as total_opened,
-        SUM(CASE WHEN status IN ('clicked', 'replied') OR clicked_at IS NOT NULL THEN 1 ELSE 0 END) as total_clicked,
-        SUM(CASE WHEN status = 'replied' OR replied_at IS NOT NULL THEN 1 ELSE 0 END) as total_replied,
-        SUM(CASE WHEN status = 'bounced' OR bounced_at IS NOT NULL THEN 1 ELSE 0 END) as total_bounced,
-        SUM(CASE WHEN status = 'unsubscribed' OR unsubscribed_at IS NOT NULL THEN 1 ELSE 0 END) as total_unsubscribed
+        SUM(CASE WHEN status IN ('sent', 'opened', 'clicked', 'replied') THEN 1 ELSE 0 END) as total_sent
       FROM campaign_recipients
+    `);
+
+    const [[logStats]] = await db.query(`
+      SELECT COUNT(*) as sent_logs
+      FROM email_logs
+      WHERE status = 'sent'
+    `);
+
+    const [[eventStats]] = await db.query(`
+      SELECT
+        COUNT(DISTINCT CASE WHEN event_type = 'Open' THEN CONCAT(recipient_email, '-', COALESCE(campaign_id, 0)) END) as total_opened,
+        COUNT(DISTINCT CASE WHEN event_type = 'Click' THEN CONCAT(recipient_email, '-', COALESCE(campaign_id, 0)) END) as total_clicked,
+        COUNT(DISTINCT CASE WHEN event_type = 'Reply' THEN CONCAT(recipient_email, '-', COALESCE(campaign_id, 0)) END) as total_replied,
+        COUNT(DISTINCT CASE WHEN event_type = 'Bounce' THEN CONCAT(recipient_email, '-', COALESCE(campaign_id, 0)) END) as total_bounced,
+        COUNT(DISTINCT CASE WHEN event_type = 'Unsubscribe' THEN CONCAT(recipient_email, '-', COALESCE(campaign_id, 0)) END) as total_unsubscribed
+      FROM email_events
     `);
 
     // 2. Count of total campaigns & draft status
@@ -432,12 +457,12 @@ class CampaignService {
       ORDER BY e.event_at DESC LIMIT 50
     `);
 
-    const totalSent = Number(recipientStats.total_sent || 0);
-    const totalOpened = Number(recipientStats.total_opened || 0);
-    const totalClicked = Number(recipientStats.total_clicked || 0);
-    const totalReplied = Number(recipientStats.total_replied || 0);
-    const totalBounced = Number(recipientStats.total_bounced || 0);
-    const totalUnsubscribed = Number(recipientStats.total_unsubscribed || 0);
+    const totalSent = Number(campaignRecipientStats.total_sent || 0) + Number(logStats.sent_logs || 0);
+    const totalOpened = Number(eventStats.total_opened || 0);
+    const totalClicked = Number(eventStats.total_clicked || 0);
+    const totalReplied = Number(eventStats.total_replied || 0);
+    const totalBounced = Number(eventStats.total_bounced || 0);
+    const totalUnsubscribed = Number(eventStats.total_unsubscribed || 0);
 
     const openRate = totalSent > 0 ? ((totalOpened / totalSent) * 100).toFixed(1) : '0.0';
     const clickRate = totalSent > 0 ? ((totalClicked / totalSent) * 100).toFixed(1) : '0.0';
