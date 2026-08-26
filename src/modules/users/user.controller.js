@@ -170,6 +170,11 @@ class UserController {
     await userService.addRemark(req.params.id, remark, req.user.id);
     res.json(ApiResponse.success(null, 'Remark added successfully'));
   }
+
+  async getEmailActivity(req, res) {
+    const activity = await userService.getEmailActivity(req.params.id);
+    res.json(ApiResponse.success(activity));
+  }
 }
 
 module.exports = new UserController();

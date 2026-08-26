@@ -400,6 +400,52 @@ class UserService {
 
     return { updatedCount: result.affectedRows };
   }
+
+  async getEmailActivity(id) {
+    const user = await this.getUserById(id);
+    const userEmail = user.email ? user.email.toLowerCase() : null;
+
+    const [transactionalLogs] = await db.query(
+      `SELECT id, recipient_email, subject, status, error_message, created_at, 'transactional' as type
+       FROM email_logs
+       WHERE user_id = ? OR (recipient_email = ? AND ? IS NOT NULL)
+       ORDER BY created_at DESC`,
+      [id, userEmail, userEmail]
+    );
+
+    const [campaignParticipations] = await db.query(
+      `SELECT cr.*, ec.name as campaign_name, ec.subject as campaign_subject, ec.gmass_campaign_id
+       FROM campaign_recipients cr
+       JOIN email_campaigns ec ON cr.campaign_id = ec.id
+       WHERE cr.contact_id = ? OR (LOWER(cr.email_address) = ? AND ? IS NOT NULL)
+       ORDER BY cr.created_at DESC`,
+      [id, userEmail, userEmail]
+    );
+
+    const [events] = await db.query(
+      `SELECT ee.*, ec.name as campaign_name
+       FROM email_events ee
+       LEFT JOIN email_campaigns ec ON ee.campaign_id = ec.id
+       WHERE ee.contact_id = ? OR (LOWER(ee.recipient_email) = ? AND ? IS NOT NULL)
+       ORDER BY ee.event_at DESC`,
+      [id, userEmail, userEmail]
+    );
+
+    return {
+      contact: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        lead_status: user.lead_status || 'New',
+        is_opted_out: !!user.is_opted_out,
+        email_invalid: !!user.email_invalid,
+        stop_automated_followups: !!user.stop_automated_followups
+      },
+      transactionalMails: transactionalLogs,
+      campaigns: campaignParticipations,
+      events
+    };
+  }
 }
 
 module.exports = new UserService();

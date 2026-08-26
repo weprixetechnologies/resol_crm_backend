@@ -19,5 +19,9 @@ module.exports = {
   JWT_REFRESH_SECRET: process.env.JWT_REFRESH_SECRET || 'dev-refresh-secret',
   JWT_ACCESS_EXPIRES_IN: process.env.JWT_ACCESS_EXPIRES_IN || '15m',
   JWT_REFRESH_EXPIRES_IN: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
-  TURNSTILE_SECRET_KEY: process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA' // dummy test key
+  TURNSTILE_SECRET_KEY: process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA', // dummy test key
+  GMASS_API_KEY: process.env.GMASS_API_KEY || '',
+  GMASS_WEBHOOK_SECRET: process.env.GMASS_WEBHOOK_SECRET || '',
+  GMASS_BASE_URL: process.env.GMASS_BASE_URL || 'https://api.gmass.co/api/',
+  GMASS_POLL_INTERVAL_MINUTES: parseInt(process.env.GMASS_POLL_INTERVAL_MINUTES || '15', 10)
 };

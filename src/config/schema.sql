@@ -168,13 +168,6 @@ CREATE TABLE IF NOT EXISTS email_logs (
 INSERT IGNORE INTO system_settings (setting_key, setting_value) VALUES 
   ('form_submission_enabled', 'true'),
   ('staff_scope', 'all'),
-  ('staff_login_enabled', 'true'),
-  ('smtp_host', 'smtp.gmail.com'),
-  ('smtp_port', '587'),
-  ('smtp_secure', 'false'),
-  ('smtp_user', 'ithyaraa.official@gmail.com'),
-  ('smtp_pass', 'kvolsposhoxctyto'),
-  ('smtp_from_email', 'ithyaraa.official@gmail.com'),
-  ('smtp_from_name', 'ithyaraa');
+  ('staff_login_enabled', 'true');
 
 

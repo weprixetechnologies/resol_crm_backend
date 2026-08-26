@@ -36,12 +36,5 @@ CREATE TABLE IF NOT EXISTS email_logs (
   INDEX idx_email_logs_created (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- 3. Seed default SMTP keys into system_settings table
-INSERT IGNORE INTO system_settings (setting_key, setting_value) VALUES 
-  ('smtp_host', 'smtp.gmail.com'),
-  ('smtp_port', '587'),
-  ('smtp_secure', 'false'),
-  ('smtp_user', 'ithyaraa.official@gmail.com'),
-  ('smtp_pass', 'kvolsposhoxctyto'),
-  ('smtp_from_email', 'ithyaraa.official@gmail.com'),
-  ('smtp_from_name', 'ithyaraa');
+-- 3. Email system initialized with GMass as default email integration
+

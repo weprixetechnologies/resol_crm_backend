@@ -27,6 +27,10 @@ const startServer = async () => {
     // Initialize BullMQ Email Worker
     require('./src/workers/email.worker');
 
+    // Initialize GMass Polling Reconciliation Job
+    const gmassReconciliationJob = require('./src/jobs/gmass-reconciliation.job');
+    gmassReconciliationJob.start();
+
     app.listen(env.PORT, () => {
       console.log(`Server running on port ${env.PORT}`);
     });

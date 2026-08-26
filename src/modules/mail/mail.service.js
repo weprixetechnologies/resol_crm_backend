@@ -1,51 +1,18 @@
-const nodemailer = require('nodemailer');
 const db = require('../../config/db');
 const settingsService = require('../settings/settings.service');
 const auditService = require('../audit/audit.service');
 
 class MailService {
-  async getTransporter(customConfig = null) {
-    let settings = customConfig;
-    if (!settings) {
-      settings = await settingsService.getSettings();
-    }
-
-    const host = settings.smtp_host || process.env.SMTP_HOST;
-    const port = parseInt(settings.smtp_port || process.env.SMTP_PORT || 587);
-    const secure = (settings.smtp_secure === true || settings.smtp_secure === 'true' || String(settings.smtp_secure) === '1');
-    const user = settings.smtp_user || process.env.SMTP_USER;
-    const pass = settings.smtp_pass || process.env.SMTP_PASS;
-
-    if (!host) {
-      const err = new Error('SMTP host is not configured. Please complete SMTP settings first.');
-      err.statusCode = 400;
-      throw err;
-    }
-
-    const transportConfig = {
-      host,
-      port,
-      secure,
-      tls: {
-        rejectUnauthorized: false
-      }
-    };
-
-    if (user) {
-      transportConfig.auth = { user, pass };
-    }
-
-    return {
-      transporter: nodemailer.createTransport(transportConfig),
-      fromEmail: settings.smtp_from_email || user || 'no-reply@example.com',
-      fromName: settings.smtp_from_name || 'RESOL CRM'
-    };
+  async testConnection(customKey = null) {
+    const GMassClient = require('../../integrations/email/gmass/gmass.client');
+    const apiKey = typeof customKey === 'string' ? customKey : (customKey?.gmass_api_key || null);
+    const client = new GMassClient(apiKey);
+    await client.getCampaigns(1, 0);
+    return { success: true, message: 'GMass API connection verified successfully!' };
   }
 
-  async testConnection(config) {
-    const { transporter } = await this.getTransporter(config);
-    await transporter.verify();
-    return { success: true, message: 'SMTP connection verified successfully!' };
+  async testGMassConnection(customKey = null) {
+    return this.testConnection(customKey);
   }
 
   // --- TEMPLATES ---

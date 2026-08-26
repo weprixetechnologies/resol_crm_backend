@@ -13,6 +13,8 @@ router.use(authMiddleware);
 // All staff can read settings, only admin can update
 router.get('/', asyncHandler(settingsController.getSettings));
 router.patch('/', requireRole('admin'), asyncHandler(settingsController.updateSettings));
+router.post('/test-gmass-connection', requireRole('admin'), asyncHandler(settingsController.testGMassConnection));
+router.post('/test-gmass', requireRole('admin'), asyncHandler(settingsController.testGMassConnection));
 
 // Destructive Reset Endpoints (Admin only)
 router.post('/verify-portal-password', requireRole('admin'), asyncHandler(wipeController.verifyPassword));

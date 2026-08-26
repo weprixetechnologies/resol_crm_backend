@@ -2,26 +2,27 @@ const { Worker } = require('bullmq');
 const connection = require('../config/bullConnection');
 const db = require('../config/db');
 const mailService = require('../modules/mail/mail.service');
+const gmassProvider = require('../integrations/email/gmass/gmass.provider');
 
 const emailWorker = new Worker(
   'emailQueue',
   async (job) => {
     const { logId, recipient, subject, bodyHtml, templateId, senderId } = job.data;
 
-    const { transporter, fromEmail, fromName } = await mailService.getTransporter();
-
     const finalSubject = mailService.interpolate(subject, recipient.customerObj);
     const finalBody = mailService.interpolate(bodyHtml, recipient.customerObj);
 
-    const mailOptions = {
-      from: `"${fromName}" <${fromEmail}>`,
-      to: recipient.name ? `"${recipient.name}" <${recipient.email}>` : recipient.email,
-      subject: finalSubject,
-      html: finalBody
-    };
-
     try {
-      await transporter.sendMail(mailOptions);
+      const recipientEmail = recipient.email ? recipient.email.trim() : '';
+      if (!recipientEmail) {
+        throw new Error('Recipient email is missing');
+      }
+
+      await gmassProvider.sendTransactional({
+        to: recipientEmail,
+        subject: finalSubject,
+        html: finalBody
+      });
 
       // Update log to 'sent'
       if (logId) {
@@ -39,7 +40,7 @@ const emailWorker = new Worker(
 
       return { recipient: recipient.email, status: 'sent' };
     } catch (err) {
-      const errorMessage = err.message || 'SMTP dispatch failed';
+      const errorMessage = err.message || 'GMass dispatch failed';
 
       // Update log to 'failed'
       if (logId) {

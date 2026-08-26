@@ -22,4 +22,7 @@ router.post('/:id/request-deletion', asyncHandler(userController.requestDeletion
 // Add remark manually
 router.post('/:id/remarks', asyncHandler(userController.addRemark));
 
+// Email Activity History
+router.get('/:id/email-activity', asyncHandler(userController.getEmailActivity));
+
 module.exports = router;
