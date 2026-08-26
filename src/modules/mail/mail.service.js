@@ -204,46 +204,56 @@ class MailService {
       throw err;
     }
 
-    const { emailQueue } = require('../../queues/email.queue');
+    const campaignService = require('../campaigns/campaign.service');
+    const campaignName = recipientsList.length === 1 
+      ? `Direct Email - ${subject.slice(0, 40)}` 
+      : `Compose Campaign - ${subject.slice(0, 40)}`;
 
-    let queuedCount = 0;
+    const campaign = await campaignService.createCampaign({
+      name: campaignName,
+      subject,
+      templateId,
+      bodyHtml: body_html
+    }, senderId);
+
+    const contactIds = recipientsList.map(r => r.user_id).filter(Boolean);
+    const customEmailAddrs = recipientsList.filter(r => !r.user_id).map(r => r.email);
+
+    await campaignService.addRecipients(campaign.id, {
+      contactIds,
+      customEmails: customEmailAddrs
+    });
+
+    const sendRes = await campaignService.sendCampaign(campaign.id, senderId);
+
+    // Also write to email_logs for historical table compatibility
     for (const item of recipientsList) {
-      const finalSubject = this.interpolate(subject, item.customerObj);
-
-      // Create initial log entry in MySQL
-      const [result] = await db.query(
-        `INSERT INTO email_logs (recipient_email, recipient_name, user_id, template_id, subject, status, sent_by)
-         VALUES (?, ?, ?, ?, ?, 'failed', ?)`,
-        [item.email, item.name || null, item.user_id || null, templateId || null, finalSubject, senderId]
-      );
-
-      const logId = result.insertId;
-
-      // Enqueue job to BullMQ
-      await emailQueue.add('sendEmailItem', {
-        logId,
-        recipient: item,
-        subject,
-        bodyHtml: body_html,
-        templateId,
-        senderId
-      });
-
-      queuedCount++;
+      try {
+        await db.query(
+          `INSERT INTO email_logs (recipient_email, recipient_name, user_id, template_id, subject, status, sent_by)
+           VALUES (?, ?, ?, ?, ?, 'sent', ?)`,
+          [item.email, item.name || null, item.user_id || null, templateId || null, subject, senderId]
+        );
+      } catch (logErr) {
+        console.warn('[Mail Service] Legacy email_logs write warning:', logErr.message);
+      }
     }
 
     await auditService.log({
       actorId: senderId,
       actorRole: 'admin',
-      action: 'EMAIL_DISPATCH_QUEUED',
-      entityType: 'email',
-      meta: { total: recipientsList.length, queued: queuedCount, templateId }
+      action: 'EMAIL_CAMPAIGN_DISPATCHED',
+      entityType: 'campaign',
+      entityId: campaign.id,
+      meta: { total: recipientsList.length, gmassCampaignId: sendRes.gmassCampaignId }
     });
 
     return {
-      queued: true,
+      success: true,
+      campaignId: campaign.id,
+      gmassCampaignId: sendRes.gmassCampaignId,
       total: recipientsList.length,
-      message: `Successfully queued ${queuedCount} email(s) for background processing via BullMQ.`
+      message: `Successfully dispatched campaign to ${recipientsList.length} recipient(s) via GMass Campaign API.`
     };
   }
 

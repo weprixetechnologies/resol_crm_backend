@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS email_events (
   contact_id          BIGINT UNSIGNED NULL,
   recipient_email     VARCHAR(200) NOT NULL,
   event_type          ENUM('Send', 'Open', 'Click', 'Reply', 'Unsubscribe', 'Bounce') NOT NULL,
-  event_source        ENUM('webhook', 'poll') NOT NULL DEFAULT 'webhook',
+  event_source        VARCHAR(50) NOT NULL DEFAULT 'webhook',
   raw_payload         JSON NULL,
   event_at            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

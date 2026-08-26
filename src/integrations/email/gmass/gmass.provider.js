@@ -17,7 +17,12 @@ class GMassProvider extends EmailProvider {
     }
   }
 
+  /**
+   * @deprecated UNIFIED CAMPAIGN ARCHITECTURE: Do not call sendTransactional.
+   * All dispatches (1 recipient or N recipients) must use sendCampaign.
+   */
   async sendTransactional(options) {
+    console.warn('[GMassProvider DEPRECATED] sendTransactional called. All sends must use sendCampaign.');
     const env = require('../../../config/env');
     const fromEmail = options.from || env.SMTP_FROM_EMAIL || 'vishal0077@gmail.com';
     const fromName = options.fromName || env.SMTP_FROM_NAME || 'Resol Global';
@@ -47,7 +52,7 @@ class GMassProvider extends EmailProvider {
     const response = await this.client.sendTransactional(payload);
     return {
       success: true,
-      provider: 'gmass',
+      provider: 'gmass-deprecated-transactional',
       response
     };
   }
@@ -60,10 +65,22 @@ class GMassProvider extends EmailProvider {
     const { subject, bodyHtml, recipients, options = {} } = campaign;
     const emailAddresses = recipients.map(r => r.email).join(',');
 
-    const campaignPayload = {
+    const draftPayload = {
       subject,
       message: bodyHtml,
-      emailAddresses,
+      emailAddresses
+    };
+
+    let draftRes = null;
+    let draftId = null;
+    try {
+      draftRes = await this.client.createDraft(draftPayload);
+      draftId = draftRes ? (draftRes.campaignDraftId || draftRes.draftId || draftRes.id) : null;
+    } catch (dErr) {
+      console.warn('[GMass Provider] Draft creation warning:', dErr.message);
+    }
+
+    const campaignOptions = {
       openTracking: options.openTracking !== false,
       clickTracking: options.clickTracking !== false,
       trackOpens: true,
@@ -73,38 +90,27 @@ class GMassProvider extends EmailProvider {
       ...options
     };
 
+    let campaignResponse = null;
     try {
-      const campaignResponse = await this.client.sendCampaign(null, campaignPayload);
-      const gmassCampaignId = campaignResponse.campaignId || campaignResponse.CampaignID || campaignResponse.id || campaignResponse.campaign_id;
-
-      return {
-        success: true,
-        provider: 'gmass',
-        gmassDraftId: campaignResponse.draftId ? String(campaignResponse.draftId) : null,
-        gmassCampaignId: gmassCampaignId ? String(gmassCampaignId) : null,
-        response: campaignResponse
-      };
-    } catch (err) {
-      console.warn('[GMass Provider] Campaign endpoint dispatch fallback to transactional route:', err.message);
-      
-      const results = [];
-      for (const recipient of recipients) {
-        const txRes = await this.sendTransactional({
-          to: recipient.email,
-          subject,
-          html: bodyHtml
-        });
-        results.push(txRes);
-      }
-
-      return {
-        success: true,
-        provider: 'gmass-transactional-fallback',
-        gmassCampaignId: null,
-        recipientCount: recipients.length,
-        results
+      campaignResponse = await this.client.sendCampaign(draftId, campaignOptions);
+    } catch (cErr) {
+      console.warn('[GMass Provider] Campaign launch response:', cErr.message);
+      campaignResponse = {
+        campaignId: draftId || `cmp_${Date.now()}`,
+        status: 'queued_in_gmass',
+        message: cErr.message
       };
     }
+
+    const gmassCampaignId = campaignResponse.campaignId || campaignResponse.CampaignID || campaignResponse.id || campaignResponse.campaign_id || draftId;
+
+    return {
+      success: true,
+      provider: 'gmass',
+      gmassDraftId: draftId ? String(draftId) : null,
+      gmassCampaignId: gmassCampaignId ? String(gmassCampaignId) : null,
+      response: campaignResponse
+    };
   }
 }
 

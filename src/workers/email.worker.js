@@ -18,10 +18,11 @@ const emailWorker = new Worker(
         throw new Error('Recipient email is missing');
       }
 
-      await gmassProvider.sendTransactional({
-        to: recipientEmail,
+      // Execute send via unified GMass Campaign API flow
+      await gmassProvider.sendCampaign({
         subject: finalSubject,
-        html: finalBody
+        bodyHtml: finalBody,
+        recipients: [{ email: recipientEmail, contactId: recipient.user_id || null }]
       });
 
       // Update log to 'sent'

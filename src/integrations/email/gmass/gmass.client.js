@@ -141,9 +141,11 @@ class GMassClient {
 
   /**
    * 3. Send Transactional Email
+   * @deprecated UNIFIED CAMPAIGN ARCHITECTURE: Do not use /api/transactional. All sends (1 or N recipients) must use GMass Campaign flow (createDraft -> sendCampaign).
    * POST /api/transactional
    */
   async sendTransactional(payload) {
+    console.warn('[GMassClient DEPRECATED] sendTransactional called. All dispatches should use GMass Campaign API flow.');
     return this.request('transactional', {
       method: 'POST',
       body: payload
