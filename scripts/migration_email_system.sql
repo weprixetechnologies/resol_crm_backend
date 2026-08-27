@@ -36,5 +36,5 @@ CREATE TABLE IF NOT EXISTS email_logs (
   INDEX idx_email_logs_created (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- 3. Email system initialized with GMass as default email integration
+-- 3. Email system initialized with Nodemailer SMTP integration
 

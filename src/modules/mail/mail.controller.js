@@ -4,13 +4,7 @@ const ApiResponse = require('../../utils/apiResponse');
 class MailController {
   async testConnection(req, res) {
     const result = await mailService.testConnection(req.body);
-    res.json(ApiResponse.success(result, 'GMass Connection test succeeded!'));
-  }
-
-  async testGMassConnection(req, res) {
-    const apiKey = req.body?.gmass_api_key || null;
-    const result = await mailService.testGMassConnection(apiKey);
-    res.json(ApiResponse.success(result, 'GMass Connection test succeeded!'));
+    res.json(ApiResponse.success(result, 'SMTP Connection test succeeded!'));
   }
 
   async getTemplates(req, res) {

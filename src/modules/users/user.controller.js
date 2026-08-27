@@ -20,15 +20,16 @@ class UserController {
       department: req.query.department,
       designation: req.query.designation,
       source: req.query.source,
-      region_type: req.query.region_type,
+      country: req.query.country || req.query.region_type,
       status: req.query.status,
       tag1: req.query.tag1,
       tag2: req.query.tag2,
       staff_code: req.query.staff_code,
-      is_admin_verified: req.query.is_admin_verified,
       is_deletion_requested: req.query.is_deletion_requested,
       startDate: req.query.startDate,
-      endDate: req.query.endDate
+      endDate: req.query.endDate,
+      fromSNo: req.query.fromSNo,
+      toSNo: req.query.toSNo
     };
     
     const result = await userService.getUsers(page, limit, req.user.role, req.user.id, filters);
@@ -44,15 +45,16 @@ class UserController {
       department: req.query.department,
       designation: req.query.designation,
       source: req.query.source,
-      region_type: req.query.region_type,
+      country: req.query.country || req.query.region_type,
       status: req.query.status,
       tag1: req.query.tag1,
       tag2: req.query.tag2,
       staff_code: req.query.staff_code,
-      is_admin_verified: req.query.is_admin_verified,
       is_deletion_requested: req.query.is_deletion_requested,
       startDate: req.query.startDate,
-      endDate: req.query.endDate
+      endDate: req.query.endDate,
+      fromSNo: req.query.fromSNo,
+      toSNo: req.query.toSNo
     };
 
     const users = await userService.getAllUsersForExport(req.user.role, req.user.id, filters);
@@ -61,6 +63,7 @@ class UserController {
     const worksheet = workbook.addWorksheet('Customer Data');
 
     worksheet.columns = [
+      { header: 'S.No.', key: 's_no', width: 8 },
       { header: 'ID', key: 'id', width: 10 },
       { header: 'Name', key: 'name', width: 25 },
       { header: 'Status', key: 'status', width: 15 },
@@ -77,21 +80,18 @@ class UserController {
       { header: 'Country', key: 'country', width: 15 },
       { header: 'Source', key: 'source', width: 15 },
       { header: 'Staff Code', key: 'created_by_code', width: 15 },
-      { header: 'Admin Verified', key: 'is_admin_verified', width: 15 },
       { header: 'Deletion Requested', key: 'is_deletion_requested', width: 20 },
       { header: 'Remarks', key: 'remarks', width: 30 },
       { header: 'Created At', key: 'created_at', width: 22 }
     ];
 
-    users.forEach(u => {
-      let countryVal = 'Indian';
-      if (u.region_type === 'abroad' || u.region_type === 'foreign') {
-        countryVal = 'Abroad';
-      } else if (u.region_type) {
-        countryVal = u.region_type.charAt(0).toUpperCase() + u.region_type.slice(1);
-      }
+    const startSNo = filters.fromSNo ? Math.max(1, parseInt(filters.fromSNo)) : 1;
+
+    users.forEach((u, idx) => {
+      const countryVal = u.country || u.region_type || '';
 
       worksheet.addRow({
+        s_no: startSNo + idx,
         id: u.id,
         name: u.name,
         status: u.status || 'active',
@@ -108,7 +108,6 @@ class UserController {
         country: countryVal,
         source: u.source || '',
         created_by_code: u.created_by_code || '',
-        is_admin_verified: u.is_admin_verified === 1 ? 'Yes' : 'No',
         is_deletion_requested: u.is_deletion_requested === 1 ? 'Yes' : 'No',
         remarks: u.remarks || '',
         created_at: u.created_at ? new Date(u.created_at).toISOString().replace('T', ' ').substring(0, 19) : ''

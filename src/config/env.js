@@ -20,8 +20,11 @@ module.exports = {
   JWT_ACCESS_EXPIRES_IN: process.env.JWT_ACCESS_EXPIRES_IN || '15m',
   JWT_REFRESH_EXPIRES_IN: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
   TURNSTILE_SECRET_KEY: process.env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA', // dummy test key
-  GMASS_API_KEY: process.env.GMASS_API_KEY || '',
-  GMASS_WEBHOOK_SECRET: process.env.GMASS_WEBHOOK_SECRET || '',
-  GMASS_BASE_URL: process.env.GMASS_BASE_URL || 'https://api.gmass.co/api/',
-  GMASS_POLL_INTERVAL_MINUTES: parseInt(process.env.GMASS_POLL_INTERVAL_MINUTES || '15', 10)
+  SMTP_HOST: process.env.SMTP_HOST || 'smtp.gmail.com',
+  SMTP_PORT: parseInt(process.env.SMTP_PORT || '587', 10),
+  SMTP_SECURE: process.env.SMTP_SECURE === 'true',
+  SMTP_USER: process.env.SMTP_USER || '',
+  SMTP_PASS: process.env.SMTP_PASS || '',
+  SMTP_FROM_EMAIL: process.env.SMTP_FROM_EMAIL || '',
+  SMTP_FROM_NAME: process.env.SMTP_FROM_NAME || 'RESOL CRM'
 };

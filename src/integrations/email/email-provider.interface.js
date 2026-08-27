@@ -1,6 +1,6 @@
 /**
  * Abstract Base Class for Email Providers in the CRM.
- * Both Nodemailer (transactional) and GMass (campaigns/bulk) implement this contract.
+ * Implemented by Nodemailer for transactional and campaign emails.
  */
 class EmailProvider {
   /**

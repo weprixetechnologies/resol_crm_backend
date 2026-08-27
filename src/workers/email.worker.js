@@ -2,12 +2,12 @@ const { Worker } = require('bullmq');
 const connection = require('../config/bullConnection');
 const db = require('../config/db');
 const mailService = require('../modules/mail/mail.service');
-const gmassProvider = require('../integrations/email/gmass/gmass.provider');
+const nodemailerProvider = require('../integrations/email/nodemailer.provider');
 
 const emailWorker = new Worker(
   'emailQueue',
   async (job) => {
-    const { logId, recipient, subject, bodyHtml, templateId, senderId } = job.data;
+    const { logId, campaignId, recipient, subject, bodyHtml, templateId, senderId } = job.data;
 
     const finalSubject = mailService.interpolate(subject, recipient.customerObj);
     const finalBody = mailService.interpolate(bodyHtml, recipient.customerObj);
@@ -18,11 +18,11 @@ const emailWorker = new Worker(
         throw new Error('Recipient email is missing');
       }
 
-      // Execute send via unified GMass Campaign API flow
-      await gmassProvider.sendCampaign({
+      // Execute send via Nodemailer SMTP Provider
+      await nodemailerProvider.sendMail({
+        to: recipientEmail,
         subject: finalSubject,
-        bodyHtml: finalBody,
-        recipients: [{ email: recipientEmail, contactId: recipient.user_id || null }]
+        html: finalBody
       });
 
       // Update log to 'sent'
@@ -39,13 +39,21 @@ const emailWorker = new Worker(
         );
       }
 
+      // Update campaign_recipients status if associated with a campaign
+      if (campaignId) {
+        await db.query(
+          `UPDATE campaign_recipients SET status = 'sent', sent_at = NOW() WHERE campaign_id = ? AND (contact_id = ? OR email_address = ?)`,
+          [campaignId, recipient.user_id || null, recipientEmail]
+        );
+      }
+
       // Record Send event in email_events for live feed visibility
       try {
         await db.query(
           `INSERT INTO email_events (campaign_id, contact_id, recipient_email, event_type, event_source, event_at)
-           VALUES (NULL, ?, ?, 'Send', 'worker', NOW())
+           VALUES (?, ?, ?, 'Send', 'worker', NOW())
            ON DUPLICATE KEY UPDATE event_at = VALUES(event_at)`,
-          [recipient.user_id || null, recipientEmail]
+          [campaignId || null, recipient.user_id || null, recipientEmail]
         );
       } catch (eErr) {
         console.warn('[Email Worker] Event log warning:', eErr.message);
@@ -53,7 +61,7 @@ const emailWorker = new Worker(
 
       return { recipient: recipient.email, status: 'sent' };
     } catch (err) {
-      const errorMessage = err.message || 'GMass dispatch failed';
+      const errorMessage = err.message || 'Email dispatch failed';
 
       // Update log to 'failed'
       if (logId) {
@@ -66,6 +74,13 @@ const emailWorker = new Worker(
           `INSERT INTO email_logs (recipient_email, recipient_name, user_id, template_id, subject, status, error_message, sent_by)
            VALUES (?, ?, ?, ?, ?, 'failed', ?, ?)`,
           [recipient.email, recipient.name || null, recipient.user_id || null, templateId || null, finalSubject, errorMessage, senderId]
+        );
+      }
+
+      if (campaignId) {
+        await db.query(
+          `UPDATE campaign_recipients SET status = 'failed' WHERE campaign_id = ? AND (contact_id = ? OR email_address = ?)`,
+          [campaignId, recipient.user_id || null, recipientEmail]
         );
       }
 

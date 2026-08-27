@@ -1,5 +1,4 @@
 const db = require('../../config/db');
-const gmassProvider = require('../../integrations/email/gmass/gmass.provider');
 const auditService = require('../audit/audit.service');
 
 class CampaignService {
@@ -183,7 +182,7 @@ class CampaignService {
   }
 
   /**
-   * Dispatch / Send campaign via GMass
+   * Dispatch / Send campaign via Nodemailer & BullMQ Queue
    */
   async sendCampaign(campaignId, senderId) {
     const campaign = await this.getCampaignById(campaignId);
@@ -195,7 +194,7 @@ class CampaignService {
 
     // Get all pending recipients
     const [recipients] = await db.query(
-      `SELECT cr.*, u.name as contact_name
+      `SELECT cr.*, u.name as contact_name, u.email as contact_email
        FROM campaign_recipients cr
        LEFT JOIN users u ON cr.contact_id = u.id
        WHERE cr.campaign_id = ? AND cr.status = 'pending'`,
@@ -209,8 +208,8 @@ class CampaignService {
     }
 
     // Fetch template body if needed
-    let bodyHtml = '';
-    if (campaign.template_id) {
+    let bodyHtml = campaign.body_html || '';
+    if (!bodyHtml && campaign.template_id) {
       const [[tpl]] = await db.query('SELECT body_html FROM email_templates WHERE id = ?', [campaign.template_id]);
       if (tpl) bodyHtml = tpl.body_html;
     }
@@ -219,48 +218,35 @@ class CampaignService {
     await db.query(`UPDATE email_campaigns SET status = 'sending', updated_at = NOW() WHERE id = ?`, [campaignId]);
 
     try {
-      const recipientList = recipients.map(r => ({
-        email: r.email_address,
-        name: r.contact_name || '',
-        contactId: r.contact_id
-      }));
+      const { emailQueue } = require('../../queues/email.queue');
 
-      const sendOptions = campaign.send_config ? (typeof campaign.send_config === 'string' ? JSON.parse(campaign.send_config) : campaign.send_config) : {};
+      for (const r of recipients) {
+        const recipientEmail = r.email_address || r.contact_email;
+        const recipientObj = {
+          email: recipientEmail,
+          name: r.contact_name || '',
+          user_id: r.contact_id || null,
+          customerObj: {
+            name: r.contact_name || '',
+            email: recipientEmail,
+            id: r.contact_id || null
+          }
+        };
 
-      const result = await gmassProvider.sendCampaign({
-        subject: campaign.subject,
-        bodyHtml,
-        recipients: recipientList,
-        options: sendOptions
-      });
+        await emailQueue.add('sendEmail', {
+          campaignId,
+          recipient: recipientObj,
+          subject: campaign.subject,
+          bodyHtml,
+          templateId: campaign.template_id || null,
+          senderId
+        });
+      }
 
-      // Update campaign record with GMass Campaign ID & Draft ID
       await db.query(
-        `UPDATE email_campaigns 
-         SET status = 'sent', gmass_campaign_id = ?, gmass_draft_id = ?, updated_at = NOW()
-         WHERE id = ?`,
-        [result.gmassCampaignId, result.gmassDraftId, campaignId]
-      );
-
-      // Update campaign recipients status to 'sent'
-      await db.query(
-        `UPDATE campaign_recipients SET status = 'sent', sent_at = NOW() WHERE campaign_id = ? AND status = 'pending'`,
+        `UPDATE email_campaigns SET status = 'sent', updated_at = NOW() WHERE id = ?`,
         [campaignId]
       );
-
-      // Record Send events in email_events for Live Feed visibility
-      for (const r of recipients) {
-        try {
-          await db.query(
-            `INSERT INTO email_events (campaign_id, contact_id, recipient_email, event_type, event_source, event_at)
-             VALUES (?, ?, ?, 'Send', 'worker', NOW())
-             ON DUPLICATE KEY UPDATE event_at = VALUES(event_at)`,
-            [campaignId, r.contact_id || null, r.email_address]
-          );
-        } catch (evErr) {
-          console.warn('[Campaign Service] Event log warning:', evErr.message);
-        }
-      }
 
       await auditService.log({
         actorId: senderId,
@@ -268,14 +254,13 @@ class CampaignService {
         action: 'CAMPAIGN_SENT',
         entityType: 'campaign',
         entityId: campaignId,
-        meta: { gmassCampaignId: result.gmassCampaignId, recipientCount: recipientList.length }
+        meta: { recipientCount: recipients.length }
       });
 
       return {
         success: true,
         campaignId,
-        gmassCampaignId: result.gmassCampaignId,
-        recipientCount: recipientList.length
+        recipientCount: recipients.length
       };
     } catch (err) {
       await db.query(`UPDATE email_campaigns SET status = 'failed', updated_at = NOW() WHERE id = ?`, [campaignId]);
@@ -338,73 +323,9 @@ class CampaignService {
   }
 
   /**
-   * On-demand manual sync/pull for a specific campaign via GMass API
-   */
-  async syncCampaignFromGMass(campaignId) {
-    const campaign = await this.getCampaignById(campaignId);
-    const gmassCampaignId = campaign.gmass_campaign_id;
-    if (!gmassCampaignId) {
-      const err = new Error('Campaign does not have an associated GMass Campaign ID yet');
-      err.statusCode = 400;
-      throw err;
-    }
-
-    const GMassClient = require('../../integrations/email/gmass/gmass.client');
-    const gmassWebhookProcessor = require('../../integrations/email/gmass/gmass.webhook');
-    const client = new GMassClient();
-
-    const reportTypes = [
-      { type: 'Open', fetchFn: () => client.getOpens(gmassCampaignId) },
-      { type: 'Click', fetchFn: () => client.getClicks(gmassCampaignId) },
-      { type: 'Reply', fetchFn: () => client.getReplies(gmassCampaignId) },
-      { type: 'Bounce', fetchFn: () => client.getBounces(gmassCampaignId) },
-      { type: 'Unsubscribe', fetchFn: () => client.getUnsubscribes(gmassCampaignId) }
-    ];
-
-    let reconciledEventsCount = 0;
-    for (const report of reportTypes) {
-      try {
-        const data = await report.fetchFn();
-        const items = Array.isArray(data) ? data : (data.results || data.items || data.data || []);
-
-        for (const rawItem of items) {
-          rawItem.campaignId = rawItem.campaignId || gmassCampaignId;
-          rawItem.eventType = rawItem.eventType || report.type;
-
-          const result = await gmassWebhookProcessor.processEvent(rawItem);
-          if (result.success) reconciledEventsCount++;
-        }
-      } catch (err) {
-        console.warn(`[GMass Sync] Error fetching ${report.type} for campaign ${gmassCampaignId}:`, err.message);
-      }
-    }
-
-    return {
-      success: true,
-      campaignId,
-      gmassCampaignId,
-      reconciledEventsCount,
-      updatedStats: (await this.getCampaignById(campaignId)).stats
-    };
-  }
-
-  /**
-   * On-demand manual sync/pull for all active campaigns via GMass API
-   */
-  async syncAllCampaignsFromGMass() {
-    const gmassReconciliationJob = require('../../jobs/gmass-reconciliation.job');
-    await gmassReconciliationJob.runReconciliation();
-    return {
-      success: true,
-      message: 'GMass API manual reconciliation finished successfully'
-    };
-  }
-
-  /**
    * Get global email tracking KPIs, lead conversions, and real-time event feed
    */
   async getGlobalTrackingSummary() {
-    // 1. Total Sent, Opened, Clicked, Replied across campaign recipients and email logs
     const [[campaignRecipientStats]] = await db.query(`
       SELECT 
         COUNT(*) as total_recipients,
@@ -428,7 +349,6 @@ class CampaignService {
       FROM email_events
     `);
 
-    // 2. Count of total campaigns & draft status
     const [[campaignCounts]] = await db.query(`
       SELECT 
         COUNT(*) as total_campaigns,
@@ -437,7 +357,6 @@ class CampaignService {
       FROM email_campaigns
     `);
 
-    // 3. Lead status conversions (Engaged, Hot Lead, Conversation Started, Invalid Email, Opted Out)
     const [leadConversions] = await db.query(`
       SELECT lead_status, COUNT(*) as count
       FROM users
@@ -445,7 +364,6 @@ class CampaignService {
       GROUP BY lead_status
     `);
 
-    // 4. Recent real-time event feed (last 50 events)
     const [recentEvents] = await db.query(`
       SELECT 
         e.id, e.campaign_id, e.recipient_email, e.event_type, e.event_source, e.event_at,

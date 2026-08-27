@@ -12,11 +12,10 @@ class SettingsController {
     res.json(ApiResponse.success(settings, 'Settings updated successfully'));
   }
 
-  async testGMassConnection(req, res) {
-    const mailService = require('../mail/mail.service');
-    const apiKey = req.body?.gmass_api_key || null;
-    const result = await mailService.testGMassConnection(apiKey);
-    res.json(ApiResponse.success(result, 'GMass API Connection test succeeded!'));
+  async testSmtpConnection(req, res) {
+    const nodemailerProvider = require('../../integrations/email/nodemailer.provider');
+    const result = await nodemailerProvider.verifyConnection(req.body);
+    res.json(ApiResponse.success(result, 'SMTP Connection test succeeded!'));
   }
 }
 

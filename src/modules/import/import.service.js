@@ -28,7 +28,7 @@ class ImportService {
         else if (['designation', 'role', 'title'].includes(normalized)) headerMap.designation = colIdx;
         else if (['institute', 'company', 'organization'].includes(normalized)) headerMap.institute = colIdx;
         else if (['department', 'dept'].includes(normalized)) headerMap.department = colIdx;
-        else if (['region', 'regiontype', 'country'].includes(normalized)) headerMap.region_type = colIdx;
+        else if (['country', 'countryname', 'region', 'regiontype'].includes(normalized)) headerMap.country = colIdx;
         else if (['status', 'customerstatus', 'userstatus'].includes(normalized)) headerMap.status = colIdx;
         else if (['tag1', 'tag 1', 'tag_1'].includes(normalized)) headerMap.tag1 = colIdx;
         else if (['tag2', 'tag 2', 'tag_2'].includes(normalized)) headerMap.tag2 = colIdx;
@@ -40,7 +40,7 @@ class ImportService {
       if (rowNumber === 1) return; // skip headers
       
       const vals = row.values;
-      let name, email, mobile, country_code, city, state, designation, institute, department, region, statusVal, tag1Val, tag2Val, remark;
+      let name, email, mobile, country_code, city, state, designation, institute, department, countryVal, statusVal, tag1Val, tag2Val, remark;
 
       if (Object.keys(headerMap).length > 0) {
         name = headerMap.name ? vals[headerMap.name] : null;
@@ -52,18 +52,18 @@ class ImportService {
         designation = headerMap.designation ? vals[headerMap.designation] : null;
         institute = headerMap.institute ? vals[headerMap.institute] : null;
         department = headerMap.department ? vals[headerMap.department] : null;
-        region = headerMap.region_type ? vals[headerMap.region_type] : null;
+        countryVal = headerMap.country ? vals[headerMap.country] : null;
         statusVal = headerMap.status ? vals[headerMap.status] : null;
         tag1Val = headerMap.tag1 ? vals[headerMap.tag1] : null;
         tag2Val = headerMap.tag2 ? vals[headerMap.tag2] : null;
         remark = headerMap.remark ? vals[headerMap.remark] : null;
       } else {
         if (vals.length >= 14) {
-          [_, name, email, mobile, country_code, city, state, designation, institute, department, region, statusVal, tag1Val, tag2Val, remark] = vals;
+          [_, name, email, mobile, country_code, city, state, designation, institute, department, countryVal, statusVal, tag1Val, tag2Val, remark] = vals;
         } else if (vals.length >= 11) {
-          [_, name, email, mobile, country_code, city, state, designation, institute, department, region, remark] = vals;
+          [_, name, email, mobile, country_code, city, state, designation, institute, department, countryVal, remark] = vals;
         } else {
-          [_, name, email, mobile, city, state, designation, institute, department, region, remark] = vals;
+          [_, name, email, mobile, city, state, designation, institute, department, countryVal, remark] = vals;
         }
       }
 
@@ -73,6 +73,7 @@ class ImportService {
       }
 
       const parsedStatus = (statusVal && statusVal.toString().trim().toLowerCase() === 'unverified') ? 'unverified' : 'active';
+      const parsedCountry = countryVal?.toString().trim() || '';
 
       parsedRows.push({
         rowNumber,
@@ -85,7 +86,8 @@ class ImportService {
         designation: designation?.toString().trim() || '',
         institute: institute?.toString().trim() || '',
         department: department?.toString().trim() || '',
-        region_type: region?.toString().toLowerCase() === 'abroad' ? 'abroad' : 'indian',
+        country: parsedCountry,
+        region_type: parsedCountry,
         user_status: parsedStatus,
         tag1: tag1Val?.toString().trim() || '',
         tag2: tag2Val?.toString().trim() || '',
@@ -190,12 +192,13 @@ class ImportService {
           const safeEmail = row.email ? row.email.substring(0, 150) : null;
           const safeEmailNorm = emailNorm ? emailNorm.substring(0, 150) : null;
           const safeCountryCode = row.country_code ? row.country_code.substring(0, 10) : null;
+          const safeCountry = row.country ? row.country.substring(0, 100) : (row.region_type ? row.region_type.substring(0, 100) : null);
           const userStatus = (row.user_status === 'unverified' || row.status_value === 'unverified') ? 'unverified' : 'active';
           const tag1Val = row.tag1 || null;
           const tag2Val = row.tag2 || null;
           const safeName = row.name ? row.name.substring(0, 150) : 'Unknown';
 
-          valuePlaceholders.push('(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, \'import\', 1, ?, ?)');
+          valuePlaceholders.push('(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, \'import\', 1, ?, ?)');
           queryParams.push(
             safeName,
             row.designation || null,
@@ -203,7 +206,8 @@ class ImportService {
             row.institute || null,
             row.city || null,
             row.state || null,
-            row.region_type === 'abroad' ? 'abroad' : 'indian',
+            safeCountry,
+            safeCountry,
             safeCountryCode,
             safeEmail,
             safeEmailNorm,
@@ -219,7 +223,7 @@ class ImportService {
 
         const bulkQuery = `
           INSERT IGNORE INTO users 
-          (name, designation, department, institute, city, state, region_type, country_code, email, email_normalized, mobile, mobile_normalized, status, tag1, tag2, source, is_admin_verified, created_by, remarks)
+          (name, designation, department, institute, city, state, country, region_type, country_code, email, email_normalized, mobile, mobile_normalized, status, tag1, tag2, source, is_admin_verified, created_by, remarks)
           VALUES ${valuePlaceholders.join(', ')}
         `;
 

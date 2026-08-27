@@ -45,16 +45,6 @@ class CampaignController {
     res.json(ApiResponse.success(analytics));
   }
 
-  async syncCampaign(req, res) {
-    const result = await campaignService.syncCampaignFromGMass(req.params.id);
-    res.json(ApiResponse.success(result, 'Campaign synced from GMass API successfully'));
-  }
-
-  async syncAllCampaigns(req, res) {
-    const result = await campaignService.syncAllCampaignsFromGMass();
-    res.json(ApiResponse.success(result, 'All GMass campaign reports synced successfully'));
-  }
-
   async getGlobalTrackingSummary(req, res) {
     const summary = await campaignService.getGlobalTrackingSummary();
     res.json(ApiResponse.success(summary));

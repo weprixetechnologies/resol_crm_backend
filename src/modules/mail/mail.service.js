@@ -1,18 +1,15 @@
 const db = require('../../config/db');
 const settingsService = require('../settings/settings.service');
 const auditService = require('../audit/audit.service');
+const nodemailerProvider = require('../../integrations/email/nodemailer.provider');
 
 class MailService {
-  async testConnection(customKey = null) {
-    const GMassClient = require('../../integrations/email/gmass/gmass.client');
-    const apiKey = typeof customKey === 'string' ? customKey : (customKey?.gmass_api_key || null);
-    const client = new GMassClient(apiKey);
-    await client.getCampaigns(1, 0);
-    return { success: true, message: 'GMass API connection verified successfully!' };
+  async testConnection(customSettings = null) {
+    return nodemailerProvider.verifyConnection(customSettings);
   }
 
-  async testGMassConnection(customKey = null) {
-    return this.testConnection(customKey);
+  async testGMassConnection(customSettings = null) {
+    return this.testConnection(customSettings);
   }
 
   // --- TEMPLATES ---
@@ -226,34 +223,20 @@ class MailService {
 
     const sendRes = await campaignService.sendCampaign(campaign.id, senderId);
 
-    // Also write to email_logs for historical table compatibility
-    for (const item of recipientsList) {
-      try {
-        await db.query(
-          `INSERT INTO email_logs (recipient_email, recipient_name, user_id, template_id, subject, status, sent_by)
-           VALUES (?, ?, ?, ?, ?, 'sent', ?)`,
-          [item.email, item.name || null, item.user_id || null, templateId || null, subject, senderId]
-        );
-      } catch (logErr) {
-        console.warn('[Mail Service] Legacy email_logs write warning:', logErr.message);
-      }
-    }
-
     await auditService.log({
       actorId: senderId,
       actorRole: 'admin',
       action: 'EMAIL_CAMPAIGN_DISPATCHED',
       entityType: 'campaign',
       entityId: campaign.id,
-      meta: { total: recipientsList.length, gmassCampaignId: sendRes.gmassCampaignId }
+      meta: { total: recipientsList.length }
     });
 
     return {
       success: true,
       campaignId: campaign.id,
-      gmassCampaignId: sendRes.gmassCampaignId,
       total: recipientsList.length,
-      message: `Successfully dispatched campaign to ${recipientsList.length} recipient(s) via GMass Campaign API.`
+      message: `Successfully dispatched campaign to ${recipientsList.length} recipient(s) via Nodemailer & BullMQ queue.`
     };
   }
 

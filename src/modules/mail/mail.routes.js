@@ -8,7 +8,7 @@ router.use(authMiddleware);
 
 // Test SMTP connection (Admin only)
 router.post('/test-connection', requireRole('admin'), mailController.testConnection);
-router.post('/test-gmass-connection', requireRole('admin'), mailController.testGMassConnection);
+router.post('/test-smtp-connection', requireRole('admin'), mailController.testConnection);
 
 // Email templates CRUD
 router.get('/templates', mailController.getTemplates);

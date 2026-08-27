@@ -5,8 +5,10 @@ const { DuplicateUtil } = require('./duplicate.util');
 
 class UserService {
   async createUser(payload, creatorId = null, creatorRole = 'public', overrideFuzzy = false) {
-    const { name, email, mobile, city, state, designation, institute, department, region_type, country_code, remarks, status, tag1, tag2 } = payload;
+    const { name, email, mobile, city, state, designation, institute, department, country, region_type, country_code, remarks, status, tag1, tag2 } = payload;
     
+    const countryVal = (country || region_type || '').trim() || null;
+
     // Check duplicates
     const dupCheck = await DuplicateUtil.checkDuplicate({ email, mobile, name, city }, true);
     
@@ -83,9 +85,9 @@ class UserService {
     const tag2Val = tag2 ? tag2.toString().trim() : null;
 
     const [result] = await db.query(
-      `INSERT INTO users (name, designation, department, institute, city, state, region_type, country_code, email, email_normalized, mobile, mobile_normalized, status, tag1, tag2, source, created_by, remarks)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [name, designation, department, institute, city, state, region_type, country_code, email, emailNorm, mobile, mobileNorm, userStatus, tag1Val, tag2Val, source, creatorId, remarks || null]
+      `INSERT INTO users (name, designation, department, institute, city, state, country, region_type, country_code, email, email_normalized, mobile, mobile_normalized, status, tag1, tag2, source, created_by, remarks)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [name, designation, department, institute, city, state, countryVal, countryVal, country_code, email, emailNorm, mobile, mobileNorm, userStatus, tag1Val, tag2Val, source, creatorId, remarks || null]
     );
 
     const newUserId = result.insertId;
@@ -103,7 +105,23 @@ class UserService {
   }
 
   async getUsers(page = 1, limit = 20, requesterRole = 'staff', requesterId = null, filters = {}) {
-    const offset = (page - 1) * limit;
+    const fromSNo = parseInt(filters.fromSNo);
+    const toSNo = parseInt(filters.toSNo);
+
+    let offset = (page - 1) * limit;
+    let queryLimit = limit;
+
+    if (fromSNo && fromSNo > 0) {
+      const startOffset = fromSNo - 1;
+      offset = startOffset + (page - 1) * limit;
+
+      if (toSNo && toSNo >= fromSNo) {
+        const maxCountInRange = toSNo - fromSNo + 1;
+        const remainingInRange = Math.max(0, maxCountInRange - (page - 1) * limit);
+        queryLimit = Math.min(limit, remainingInRange);
+      }
+    }
+
     let baseQuery = 'FROM users u LEFT JOIN staff s ON u.created_by = s.id WHERE 1=1';
     const params = [];
 
@@ -124,17 +142,18 @@ class UserService {
 
     // Apply Search
     if (filters.search) {
-      baseQuery += ' AND (u.name LIKE ? OR u.email LIKE ? OR u.mobile LIKE ? OR u.city LIKE ? OR u.institute LIKE ? OR u.department LIKE ? OR u.designation LIKE ? OR u.tag1 LIKE ? OR u.tag2 LIKE ? OR s.staff_code LIKE ?)';
+      baseQuery += ' AND (u.name LIKE ? OR u.email LIKE ? OR u.mobile LIKE ? OR u.city LIKE ? OR u.country LIKE ? OR u.institute LIKE ? OR u.department LIKE ? OR u.designation LIKE ? OR u.tag1 LIKE ? OR u.tag2 LIKE ? OR s.staff_code LIKE ?)';
       const term = `%${filters.search}%`;
-      params.push(term, term, term, term, term, term, term, term, term, term);
+      params.push(term, term, term, term, term, term, term, term, term, term, term);
     }
 
     // Apply Advanced Filters
-    const likeFields = ['city', 'state', 'institute', 'department', 'designation', 'tag1', 'tag2'];
+    const likeFields = ['city', 'state', 'country', 'institute', 'department', 'designation', 'tag1', 'tag2'];
     likeFields.forEach(field => {
       if (filters[field]) {
-        baseQuery += ` AND u.${field} LIKE ?`;
+        baseQuery += ` AND (u.${field} LIKE ? ${field === 'country' ? 'OR u.region_type LIKE ?' : ''})`;
         params.push(`%${filters[field]}%`);
+        if (field === 'country') params.push(`%${filters[field]}%`);
       }
     });
 
@@ -143,18 +162,13 @@ class UserService {
       params.push(`%${filters.staff_code}%`);
     }
 
-    const exactFields = ['source', 'region_type', 'status'];
+    const exactFields = ['source', 'status'];
     exactFields.forEach(field => {
       if (filters[field] && filters[field] !== 'all') {
         baseQuery += ` AND u.${field} = ?`;
         params.push(filters[field]);
       }
     });
-
-    if (filters.is_admin_verified && filters.is_admin_verified !== 'all') {
-      baseQuery += ' AND u.is_admin_verified = ?';
-      params.push(filters.is_admin_verified === '1' ? 1 : 0);
-    }
 
     if (filters.is_deletion_requested && filters.is_deletion_requested !== 'all') {
       baseQuery += ' AND u.is_deletion_requested = ?';
@@ -171,14 +185,29 @@ class UserService {
       params.push(`${filters.endDate} 23:59:59`);
     }
 
-    const [rows] = await db.query(`SELECT u.*, s.staff_code as created_by_code ${baseQuery} ORDER BY u.created_at DESC LIMIT ? OFFSET ?`, [...params, limit, offset]);
-    const [[{ total }]] = await db.query(`SELECT COUNT(*) as total ${baseQuery}`, params);
+    const [[{ total: rawTotal }]] = await db.query(`SELECT COUNT(*) as total ${baseQuery}`, params);
+
+    let total = rawTotal;
+    if (fromSNo && fromSNo > 0) {
+      const availableFromStart = Math.max(0, rawTotal - (fromSNo - 1));
+      if (toSNo && toSNo >= fromSNo) {
+        total = Math.min(availableFromStart, toSNo - fromSNo + 1);
+      } else {
+        total = availableFromStart;
+      }
+    }
+
+    if (queryLimit <= 0) {
+      return { items: [], total, page, totalPages: Math.ceil(total / limit) || 1 };
+    }
+
+    const [rows] = await db.query(`SELECT u.*, s.staff_code as created_by_code ${baseQuery} ORDER BY u.created_at DESC LIMIT ? OFFSET ?`, [...params, queryLimit, offset]);
 
     return {
       items: rows,
       total,
       page,
-      totalPages: Math.ceil(total / limit)
+      totalPages: Math.ceil(total / limit) || 1
     };
   }
 
@@ -200,16 +229,17 @@ class UserService {
     }
 
     if (filters.search) {
-      baseQuery += ' AND (u.name LIKE ? OR u.email LIKE ? OR u.mobile LIKE ? OR u.tag1 LIKE ? OR u.tag2 LIKE ?)';
+      baseQuery += ' AND (u.name LIKE ? OR u.email LIKE ? OR u.mobile LIKE ? OR u.country LIKE ? OR u.tag1 LIKE ? OR u.tag2 LIKE ?)';
       const term = `%${filters.search}%`;
-      params.push(term, term, term, term, term);
+      params.push(term, term, term, term, term, term);
     }
 
-    const likeFields = ['city', 'state', 'institute', 'department', 'designation', 'tag1', 'tag2'];
+    const likeFields = ['city', 'state', 'country', 'institute', 'department', 'designation', 'tag1', 'tag2'];
     likeFields.forEach(field => {
       if (filters[field]) {
-        baseQuery += ` AND u.${field} LIKE ?`;
+        baseQuery += ` AND (u.${field} LIKE ? ${field === 'country' ? 'OR u.region_type LIKE ?' : ''})`;
         params.push(`%${filters[field]}%`);
+        if (field === 'country') params.push(`%${filters[field]}%`);
       }
     });
 
@@ -218,18 +248,13 @@ class UserService {
       params.push(`%${filters.staff_code}%`);
     }
 
-    const exactFields = ['source', 'region_type', 'status'];
+    const exactFields = ['source', 'status'];
     exactFields.forEach(field => {
       if (filters[field] && filters[field] !== 'all') {
         baseQuery += ` AND u.${field} = ?`;
         params.push(filters[field]);
       }
     });
-
-    if (filters.is_admin_verified && filters.is_admin_verified !== 'all') {
-      baseQuery += ' AND u.is_admin_verified = ?';
-      params.push(filters.is_admin_verified === '1' ? 1 : 0);
-    }
 
     if (filters.is_deletion_requested && filters.is_deletion_requested !== 'all') {
       baseQuery += ' AND u.is_deletion_requested = ?';
@@ -246,7 +271,18 @@ class UserService {
       params.push(`${filters.endDate} 23:59:59`);
     }
 
-    const [rows] = await db.query(`SELECT u.*, s.staff_code as created_by_code ${baseQuery} ORDER BY u.created_at DESC`, params);
+    let limitOffsetClause = '';
+    const fromSNo = parseInt(filters.fromSNo);
+    const toSNo = parseInt(filters.toSNo);
+
+    if (fromSNo && fromSNo > 0) {
+      const exportOffset = fromSNo - 1;
+      const exportLimit = (toSNo && toSNo >= fromSNo) ? (toSNo - fromSNo + 1) : 1000000;
+      limitOffsetClause = ' LIMIT ? OFFSET ?';
+      params.push(exportLimit, exportOffset);
+    }
+
+    const [rows] = await db.query(`SELECT u.*, s.staff_code as created_by_code ${baseQuery} ORDER BY u.created_at DESC${limitOffsetClause}`, params);
     return rows;
   }
 
@@ -300,14 +336,16 @@ class UserService {
   }
 
   async updateUser(id, payload, updaterId, updaterRole) {
-    // Determine allowed fields based on role
-    const allowedFields = ['name', 'designation', 'department', 'institute', 'city', 'state', 'region_type', 'country_code', 'email', 'mobile', 'remarks', 'status', 'tag1', 'tag2'];
-    if (updaterRole === 'admin') {
-      allowedFields.push('is_admin_verified');
-    }
+    const allowedFields = ['name', 'designation', 'department', 'institute', 'city', 'state', 'country', 'region_type', 'country_code', 'email', 'mobile', 'remarks', 'status', 'tag1', 'tag2'];
 
     if (payload.status !== undefined) {
       payload.status = (payload.status && payload.status.toString().toLowerCase() === 'unverified') ? 'unverified' : 'active';
+    }
+
+    if (payload.country !== undefined || payload.region_type !== undefined) {
+      const cVal = (payload.country || payload.region_type || '').trim() || null;
+      payload.country = cVal;
+      payload.region_type = cVal;
     }
 
     let query = 'UPDATE users SET updated_at = NOW()';
@@ -368,58 +406,52 @@ class UserService {
     await auditService.log({
       actorId: requesterId,
       actorRole: requesterRole,
-      action: 'USER_DELETION_REQUEST',
+      action: 'USER_DELETION_REQUESTED',
       entityType: 'user',
       entityId: id,
       meta: { reason }
     });
+
+    return { success: true };
   }
 
   async bulkRequestDeletion(ids, reason, requesterId, requesterRole) {
-    if (!Array.isArray(ids) || ids.length === 0) {
-      const e = new Error('No user IDs provided for deletion');
-      e.statusCode = 400;
-      throw e;
-    }
-
     const [result] = await db.query(
       'UPDATE users SET is_deletion_requested = 1, deletion_reason = ? WHERE id IN (?) AND is_deletion_requested = 0',
       [reason, ids]
     );
 
-    for (const id of ids) {
-      await auditService.log({
-        actorId: requesterId,
-        actorRole: requesterRole,
-        action: 'USER_DELETION_REQUEST',
-        entityType: 'user',
-        entityId: id,
-        meta: { reason, isBulk: true }
-      });
-    }
+    await auditService.log({
+      actorId: requesterId,
+      actorRole: requesterRole,
+      action: 'USER_BULK_DELETION_REQUESTED',
+      entityType: 'users',
+      meta: { count: result.affectedRows, requestedIds: ids, reason }
+    });
 
     return { updatedCount: result.affectedRows };
   }
 
-  async getEmailActivity(id) {
-    const user = await this.getUserById(id);
-    const userEmail = user.email ? user.email.toLowerCase() : null;
+  async getEmailActivity(userId) {
+    const user = await this.getUserById(userId);
+    const userEmail = user.email ? user.email.toLowerCase().trim() : null;
 
-    const [transactionalLogs] = await db.query(
-      `SELECT id, recipient_email, subject, status, error_message, created_at, 'transactional' as type
-       FROM email_logs
-       WHERE user_id = ? OR (recipient_email = ? AND ? IS NOT NULL)
-       ORDER BY created_at DESC`,
-      [id, userEmail, userEmail]
+    const [logs] = await db.query(
+      `SELECT l.*, s.name as sent_by_name
+       FROM email_logs l
+       LEFT JOIN staff s ON l.sent_by = s.id
+       WHERE l.user_id = ? OR (LOWER(l.recipient_email) = ? AND ? IS NOT NULL)
+       ORDER BY l.created_at DESC`,
+      [userId, userEmail, userEmail]
     );
 
     const [campaignParticipations] = await db.query(
-      `SELECT cr.*, ec.name as campaign_name, ec.subject as campaign_subject, ec.gmass_campaign_id
+      `SELECT cr.*, ec.name as campaign_name, ec.subject as campaign_subject
        FROM campaign_recipients cr
        JOIN email_campaigns ec ON cr.campaign_id = ec.id
        WHERE cr.contact_id = ? OR (LOWER(cr.email_address) = ? AND ? IS NOT NULL)
        ORDER BY cr.created_at DESC`,
-      [id, userEmail, userEmail]
+      [userId, userEmail, userEmail]
     );
 
     const [events] = await db.query(
@@ -428,20 +460,12 @@ class UserService {
        LEFT JOIN email_campaigns ec ON ee.campaign_id = ec.id
        WHERE ee.contact_id = ? OR (LOWER(ee.recipient_email) = ? AND ? IS NOT NULL)
        ORDER BY ee.event_at DESC`,
-      [id, userEmail, userEmail]
+      [userId, userEmail, userEmail]
     );
 
     return {
-      contact: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        lead_status: user.lead_status || 'New',
-        is_opted_out: !!user.is_opted_out,
-        email_invalid: !!user.email_invalid,
-        stop_automated_followups: !!user.stop_automated_followups
-      },
-      transactionalMails: transactionalLogs,
+      user: { id: user.id, name: user.name, email: user.email },
+      logs,
       campaigns: campaignParticipations,
       events
     };

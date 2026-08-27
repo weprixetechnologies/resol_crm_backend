@@ -28,6 +28,12 @@ async function migrate() {
     await safeAddColumn(`ALTER TABLE archived_users ADD COLUMN tag1 VARCHAR(255) NULL;`);
     await safeAddColumn(`ALTER TABLE archived_users ADD COLUMN tag2 VARCHAR(255) NULL;`);
 
+    // Country & Region field migrations
+    await safeAddColumn(`ALTER TABLE users MODIFY COLUMN region_type VARCHAR(100) NULL;`);
+    await safeAddColumn(`ALTER TABLE users ADD COLUMN country VARCHAR(100) NULL;`);
+    await safeAddColumn(`ALTER TABLE archived_users MODIFY COLUMN region_type VARCHAR(100) NULL;`);
+    await safeAddColumn(`ALTER TABLE archived_users ADD COLUMN country VARCHAR(100) NULL;`);
+
     // Mailing system tables
     await db.query(`
       CREATE TABLE IF NOT EXISTS email_templates (

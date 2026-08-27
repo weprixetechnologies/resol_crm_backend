@@ -11,10 +11,8 @@ router.use(authMiddleware);
 router.post('/', requireRole('admin'), asyncHandler(campaignController.createCampaign));
 router.get('/', asyncHandler(campaignController.getCampaigns));
 
-// GMass Email Tracking & On-Demand Sync
+// Email Tracking Summary
 router.get('/tracking/summary', asyncHandler(campaignController.getGlobalTrackingSummary));
-router.post('/sync-all', requireRole('admin'), asyncHandler(campaignController.syncAllCampaigns));
-router.post('/:id/sync', requireRole('admin'), asyncHandler(campaignController.syncCampaign));
 
 router.get('/:id', asyncHandler(campaignController.getCampaignById));
 router.get('/:id/analytics', asyncHandler(campaignController.getAnalytics));
