@@ -166,6 +166,14 @@ class Msg91Provider extends EmailProvider {
 
     if (msg91TemplateId && msg91TemplateId.length > 0) {
       payload.template_id = msg91TemplateId;
+    } else {
+      payload.body = {
+        type: 'text/html',
+        data: html || text || ''
+      };
+      if (subject) {
+        payload.subject = subject;
+      }
     }
 
     const response = await fetch('https://control.msg91.com/api/v5/email/send', {
@@ -265,6 +273,14 @@ class Msg91Provider extends EmailProvider {
 
       if (msg91TemplateId && msg91TemplateId.length > 0) {
         payload.template_id = msg91TemplateId;
+      } else {
+        payload.body = {
+          type: 'text/html',
+          data: bodyHtml || ''
+        };
+        if (subject) {
+          payload.subject = subject;
+        }
       }
 
       const response = await fetch('https://control.msg91.com/api/v5/email/send', {
@@ -295,6 +311,93 @@ class Msg91Provider extends EmailProvider {
       sentCount: recipients.length,
       raw: totalResults
     };
+  }
+
+  /**
+   * Registers a new HTML email template in MSG91 via POST /api/v5/email/templates
+   * Docs: https://docs.msg91.com/email/create-new-template
+   */
+  async createTemplateInMsg91(templateObj) {
+    const config = await this.getConfig();
+    const authKey = (config.authKey || '').trim();
+
+    if (!authKey) {
+      throw new Error('MSG91 Auth Key is not configured in system settings');
+    }
+
+    const name = templateObj.name || 'CRM Email Template';
+    const slugName = templateObj.slug || templateObj.msg91_slug || (name.toLowerCase().replace(/[^a-z0-9]/g, '_') + '_' + (templateObj.id || Date.now()));
+    const subject = templateObj.subject || '';
+    const body = templateObj.body_html || templateObj.body || '';
+
+    const payload = {
+      name,
+      slug: slugName,
+      subject,
+      body
+    };
+
+    const response = await fetch('https://control.msg91.com/api/v5/email/templates', {
+      method: 'POST',
+      headers: {
+        'authkey': authKey,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const resText = await response.text();
+    let resJson;
+    try { resJson = JSON.parse(resText); } catch { resJson = { raw: resText }; }
+
+    if (!response.ok || resJson.type === 'error' || resJson.status === 'error' || resJson.hasError) {
+      console.error('[Msg91Provider] Template Creation Failed:', JSON.stringify(resJson));
+      const errMsg = resJson.message || resJson.errors || `Failed to create template in MSG91 (HTTP ${response.status})`;
+      throw new Error(typeof errMsg === 'object' ? JSON.stringify(errMsg) : errMsg);
+    }
+
+    const msg91Slug = resJson.data?.slug || resJson.slug || slugName;
+    const msg91Id = resJson.data?.id || resJson.id || resJson.data?.template_id || msg91Slug;
+
+    return {
+      success: true,
+      msg91_template_id: String(msg91Id),
+      msg91_slug: String(msg91Slug),
+      raw: resJson
+    };
+  }
+
+  /**
+   * Fetches list of all email templates registered in MSG91 account
+   * Docs: https://docs.msg91.com/email/list-of-all-email-templates
+   */
+  async listTemplatesInMsg91() {
+    const config = await this.getConfig();
+    const authKey = (config.authKey || '').trim();
+
+    if (!authKey) {
+      throw new Error('MSG91 Auth Key is not configured in system settings');
+    }
+
+    const response = await fetch('https://control.msg91.com/api/v5/email/templates', {
+      method: 'GET',
+      headers: {
+        'authkey': authKey,
+        'Accept': 'application/json'
+      }
+    });
+
+    const resText = await response.text();
+    let resJson;
+    try { resJson = JSON.parse(resText); } catch { resJson = { raw: resText }; }
+
+    if (!response.ok || resJson.type === 'error' || resJson.status === 'error') {
+      const errMsg = resJson.message || resJson.errors || `Failed to fetch MSG91 templates (HTTP ${response.status})`;
+      throw new Error(typeof errMsg === 'object' ? JSON.stringify(errMsg) : errMsg);
+    }
+
+    return resJson.data || resJson.templates || resJson;
   }
 }
 

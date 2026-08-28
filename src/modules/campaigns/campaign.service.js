@@ -222,6 +222,16 @@ class CampaignService {
       const provider = await getActiveEmailProvider();
 
       if (provider.provider === 'msg91') {
+        let msg91CampaignTemplateId = campaign.template_id;
+        if (campaign.template_id && (typeof campaign.template_id === 'number' || /^\d+$/.test(String(campaign.template_id)))) {
+          const [tRows] = await db.query('SELECT msg91_template_id, msg91_slug FROM email_templates WHERE id = ?', [campaign.template_id]);
+          if (tRows.length > 0 && (tRows[0].msg91_slug || tRows[0].msg91_template_id)) {
+            msg91CampaignTemplateId = tRows[0].msg91_slug || tRows[0].msg91_template_id;
+          } else {
+            msg91CampaignTemplateId = null;
+          }
+        }
+
         const recipientList = recipients.map(r => {
           const recipientEmail = r.email_address || r.contact_email;
           const crqid = `CRM_CR_${campaignId}_${r.contact_id || recipientEmail.replace(/[^a-zA-Z0-9]/g, '')}`;
@@ -242,7 +252,7 @@ class CampaignService {
           subject: campaign.subject,
           bodyHtml,
           recipients: recipientList,
-          templateId: campaign.template_id || null
+          templateId: msg91CampaignTemplateId
         });
 
         for (const r of recipientList) {

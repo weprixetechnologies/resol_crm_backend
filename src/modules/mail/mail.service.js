@@ -48,13 +48,35 @@ class MailService {
       [name, subject, body_html, designStr, creatorId]
     );
 
+    let msg91TemplateId = null;
+    let msg91Slug = null;
+
+    try {
+      const msg91Res = await msg91Provider.createTemplateInMsg91({
+        id: result.insertId,
+        name,
+        subject,
+        body_html
+      });
+      if (msg91Res?.msg91_template_id) {
+        msg91TemplateId = msg91Res.msg91_template_id;
+        msg91Slug = msg91Res.msg91_slug;
+        await db.query(
+          'UPDATE email_templates SET msg91_template_id = ?, msg91_slug = ? WHERE id = ?',
+          [msg91TemplateId, msg91Slug, result.insertId]
+        );
+      }
+    } catch (mErr) {
+      console.warn('[MailService] MSG91 template sync skipped:', mErr.message);
+    }
+
     await auditService.log({
       actorId: creatorId,
       actorRole: 'admin',
       action: 'EMAIL_TEMPLATE_CREATE',
       entityType: 'email_template',
       entityId: result.insertId,
-      meta: { name, subject }
+      meta: { name, subject, msg91TemplateId }
     });
 
     return this.getTemplateById(result.insertId);
@@ -73,6 +95,24 @@ class MailService {
       'UPDATE email_templates SET name = ?, subject = ?, body_html = ?, design_json = ?, updated_at = NOW() WHERE id = ?',
       [newName, newSubject, newBody, newDesign, id]
     );
+
+    try {
+      const msg91Res = await msg91Provider.createTemplateInMsg91({
+        id,
+        name: newName,
+        subject: newSubject,
+        body_html: newBody,
+        slug: existing.msg91_slug
+      });
+      if (msg91Res?.msg91_template_id) {
+        await db.query(
+          'UPDATE email_templates SET msg91_template_id = ?, msg91_slug = ? WHERE id = ?',
+          [msg91Res.msg91_template_id, msg91Res.msg91_slug, id]
+        );
+      }
+    } catch (mErr) {
+      console.warn('[MailService] MSG91 template update sync skipped:', mErr.message);
+    }
 
     await auditService.log({
       actorId: updaterId,

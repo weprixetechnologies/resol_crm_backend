@@ -24,13 +24,24 @@ const emailWorker = new Worker(
           ? `CRM_LOG_${logId}`
           : `CRM_GEN_${Date.now()}_${recipient.user_id || recipientEmail.replace(/[^a-zA-Z0-9]/g, '')}`;
 
+      // Resolve MSG91 template slug/id from DB if internal template ID is passed
+      let resolvedTemplateId = templateId;
+      if (templateId && (typeof templateId === 'number' || /^\d+$/.test(String(templateId)))) {
+        const [tRows] = await db.query('SELECT msg91_template_id, msg91_slug FROM email_templates WHERE id = ?', [templateId]);
+        if (tRows.length > 0 && (tRows[0].msg91_slug || tRows[0].msg91_template_id)) {
+          resolvedTemplateId = tRows[0].msg91_slug || tRows[0].msg91_template_id;
+        } else {
+          resolvedTemplateId = null; // Omit if not registered in MSG91
+        }
+      }
+
       // Execute send via active Email Provider (MSG91 or Nodemailer)
       const provider = await getActiveEmailProvider();
       const sendRes = await provider.sendTransactional({
         to: recipientEmail,
         subject: finalSubject,
         html: finalBody,
-        templateId,
+        templateId: resolvedTemplateId,
         crqid
       });
 

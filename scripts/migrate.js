@@ -128,6 +128,10 @@ async function migrate() {
     await safeAddColumn(`ALTER TABLE campaign_recipients MODIFY COLUMN status VARCHAR(50) NOT NULL DEFAULT 'pending';`);
     await safeAddColumn(`ALTER TABLE email_events MODIFY COLUMN event_type VARCHAR(50) NOT NULL;`);
 
+    // Add MSG91 Template integration columns to email_templates
+    await safeAddColumn(`ALTER TABLE email_templates ADD COLUMN msg91_template_id VARCHAR(100) NULL;`);
+    await safeAddColumn(`ALTER TABLE email_templates ADD COLUMN msg91_slug VARCHAR(100) NULL;`);
+
     // Add tracking columns to email_logs
     await safeAddColumn(`ALTER TABLE email_logs ADD COLUMN crqid VARCHAR(100) NULL;`);
     await safeAddColumn(`ALTER TABLE email_logs ADD COLUMN msg_id VARCHAR(100) NULL;`);
