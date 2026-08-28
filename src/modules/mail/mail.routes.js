@@ -13,8 +13,10 @@ router.post('/test-smtp-connection', requireRole('admin'), mailController.testCo
 // Email templates CRUD & MSG91 Sync
 router.get('/templates', mailController.getTemplates);
 router.get('/templates/msg91-live', requireRole('admin'), mailController.getMsg91TemplatesLive);
+router.post('/templates/sync', requireRole('admin'), mailController.syncAllTemplatesToMsg91);
 router.post('/templates/sync-all-msg91', requireRole('admin'), mailController.syncAllTemplatesToMsg91);
 router.post('/templates/:id/sync-msg91', requireRole('admin'), mailController.syncTemplateToMsg91);
+router.get('/templates/versions/:versionId', requireRole('admin'), mailController.getTemplateVersionDetails);
 router.get('/templates/:id', mailController.getTemplateById);
 router.post('/templates', requireRole('admin'), mailController.createTemplate);
 router.put('/templates/:id', requireRole('admin'), mailController.updateTemplate);

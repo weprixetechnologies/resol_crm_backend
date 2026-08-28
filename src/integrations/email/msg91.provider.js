@@ -1,6 +1,71 @@
 const EmailProvider = require('./email-provider.interface');
 const settingsService = require('../../modules/settings/settings.service');
 const env = require('../../config/env');
+const db = require('../../config/db');
+
+/**
+ * Normalizes MSG91 template/version status according to Section 3 & 4:
+ * Internal status values: DRAFT, PENDING, ACTIVE, REJECTED, UNKNOWN
+ * DO NOT guess numeric status_id (e.g., status_id: 2 does NOT automatically mean APPROVED unless verified).
+ */
+function normalizeMsg91Status(template) {
+  if (!template || typeof template !== 'object') {
+    return {
+      status: 'UNKNOWN',
+      msg91StatusId: null,
+      isActive: false,
+      isDraft: false,
+      reasonId: null,
+      usable: false
+    };
+  }
+
+  // If template has a versions array (MSG91 API GET /api/v5/email/templates?with=versions), unwrap active/first version
+  let targetObj = template;
+  if (Array.isArray(template.versions) && template.versions.length > 0) {
+    const activeVer = template.versions.find(v => v && (v.is_active === true || v.is_active === 1 || v.is_active === '1')) || template.versions[0];
+    if (activeVer) {
+      targetObj = activeVer;
+    }
+  }
+
+  const isDraft = Boolean(targetObj.is_draft === true || targetObj.is_draft === 1 || targetObj.is_draft === '1');
+  const isActive = Boolean(targetObj.is_active === true || targetObj.is_active === 1 || targetObj.is_active === '1');
+
+  const statusStr = String(
+    targetObj.status || 
+    targetObj.template_version_status || 
+    targetObj.approval_status || 
+    targetObj.verification_status || 
+    targetObj.state || 
+    ''
+  ).toUpperCase().trim();
+
+  let status = 'UNKNOWN';
+
+  if (isDraft) {
+    status = 'DRAFT';
+  } else if (isActive || statusStr === 'ACTIVE' || statusStr === 'APPROVED' || statusStr === 'VERIFIED') {
+    status = 'ACTIVE';
+  } else if (statusStr === 'REJECTED' || statusStr === 'DISAPPROVED' || statusStr === 'FAILED') {
+    status = 'REJECTED';
+  } else if (statusStr === 'PENDING' || statusStr === 'IN_REVIEW' || statusStr === 'SUBMITTED' || statusStr === 'UNVERIFIED') {
+    status = 'PENDING';
+  } else {
+    status = 'UNKNOWN';
+  }
+
+  const usable = status === 'ACTIVE';
+
+  return {
+    status,
+    msg91StatusId: targetObj.status_id !== undefined && targetObj.status_id !== null ? Number(targetObj.status_id) : null,
+    isActive,
+    isDraft,
+    reasonId: targetObj.reason_id !== undefined && targetObj.reason_id !== null ? targetObj.reason_id : null,
+    usable
+  };
+}
 
 class Msg91Provider extends EmailProvider {
   constructor() {
@@ -239,7 +304,15 @@ class Msg91Provider extends EmailProvider {
       }
     }
 
-    if (!response.ok || resJson.type === 'error' || resJson.status === 'error' || resJson.errors) {
+    const hasRealErrors = Boolean(
+      resJson.hasError === true || 
+      resJson.status === 'error' || 
+      resJson.status === 'fail' || 
+      resJson.type === 'error' || 
+      (resJson.errors && typeof resJson.errors === 'object' && Object.keys(resJson.errors).length > 0)
+    );
+
+    if (!response.ok || hasRealErrors) {
       console.error('[Msg91Provider] Send Email Error Response:', JSON.stringify(resJson), 'Payload:', JSON.stringify(payload));
       let errMsg = resJson.message || resJson.errors || `MSG91 Email send failed with status ${response.status}`;
       if (typeof errMsg === 'object') {
@@ -391,7 +464,15 @@ class Msg91Provider extends EmailProvider {
         }
       }
 
-      if (!response.ok || resJson.type === 'error' || resJson.status === 'error' || resJson.errors) {
+      const hasCampErrors = Boolean(
+        resJson.hasError === true || 
+        resJson.status === 'error' || 
+        resJson.status === 'fail' || 
+        resJson.type === 'error' || 
+        (resJson.errors && typeof resJson.errors === 'object' && Object.keys(resJson.errors).length > 0)
+      );
+
+      if (!response.ok || hasCampErrors) {
         const errMsg = resJson.message || resJson.errors || `MSG91 Campaign batch send failed with status ${response.status}`;
         throw new Error(typeof errMsg === 'object' ? JSON.stringify(errMsg) : errMsg);
       }
@@ -466,7 +547,7 @@ class Msg91Provider extends EmailProvider {
    * Fetches list of all email templates registered in MSG91 account
    * Docs: https://docs.msg91.com/email/list-of-all-email-templates
    */
-  async listTemplatesInMsg91() {
+  async listTemplatesInMsg91(params = {}) {
     const config = await this.getConfig();
     const authKey = (config.authKey || '').trim();
 
@@ -474,7 +555,13 @@ class Msg91Provider extends EmailProvider {
       throw new Error('MSG91 Auth Key is not configured in system settings');
     }
 
-    const response = await fetch('https://control.msg91.com/api/v5/email/templates', {
+    const queryParams = new URLSearchParams();
+    queryParams.append('with', 'versions');
+    if (params.status_id) queryParams.append('status_id', String(params.status_id));
+    if (params.keyword) queryParams.append('keyword', String(params.keyword));
+    if (params.search_in) queryParams.append('search_in', String(params.search_in));
+
+    const response = await fetch(`https://control.msg91.com/api/v5/email/templates?${queryParams.toString()}`, {
       method: 'GET',
       headers: {
         'authkey': authKey,
@@ -512,6 +599,56 @@ class Msg91Provider extends EmailProvider {
     }
 
     return list;
+  }
+
+  /**
+   * Fetches specific template version details from MSG91
+   * Docs: GET https://control.msg91.com/api/v5/email/template-versions/:TemplateVersionIdHere?with=template
+   */
+  async getTemplateVersionDetails(versionId) {
+    if (!versionId) {
+      throw new Error('Validation Error: MSG91 Template Version ID is required');
+    }
+
+    const config = await this.getConfig();
+    const authKey = (config.authKey || '').trim();
+
+    if (!authKey) {
+      throw new Error('MSG91 Auth Key is not configured in system settings');
+    }
+
+    const versionIdStr = String(versionId).trim();
+    const url = `https://control.msg91.com/api/v5/email/template-versions/${encodeURIComponent(versionIdStr)}?with=template`;
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'authkey': authKey,
+        'Accept': 'application/json'
+      }
+    });
+
+    const resText = await response.text();
+    let resJson;
+    try { resJson = JSON.parse(resText); } catch { resJson = { raw: resText }; }
+
+    if (!response.ok || resJson.type === 'error' || resJson.status === 'error') {
+      const errMsg = resJson.message || resJson.errors || `Failed to fetch template version ${versionIdStr} (HTTP ${response.status})`;
+      throw new Error(typeof errMsg === 'object' ? JSON.stringify(errMsg) : errMsg);
+    }
+
+    const versionData = resJson.data || resJson.version || resJson;
+    const normalized = normalizeMsg91Status(versionData);
+
+    return {
+      version_id: String(versionIdStr),
+      template_id: versionData.template_id ? String(versionData.template_id) : null,
+      version_name: versionData.name || versionData.version_name || null,
+      subject: versionData.subject || null,
+      body: versionData.body || null,
+      variables: versionData.variables || null,
+      ...normalized,
+      raw: resJson
+    };
   }
 
   /**
@@ -618,4 +755,6 @@ class Msg91Provider extends EmailProvider {
   }
 }
 
-module.exports = new Msg91Provider();
+const instance = new Msg91Provider();
+instance.normalizeMsg91Status = normalizeMsg91Status;
+module.exports = instance;

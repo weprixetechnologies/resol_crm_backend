@@ -149,34 +149,112 @@ class MailService {
       throw new Error(`Template #${id} not found`);
     }
 
-    // If template already has a msg91_slug and we are not forcing re-upload, check its live status from MSG91
-    if (template.msg91_slug && !forceReupload) {
-      const details = await msg91Provider.getTemplateDetailsInMsg91(template.msg91_slug);
-      if (details) {
-        const liveStatus = details.status || details.approval_status || 'approved';
-        return {
-          ...template,
-          msg91_status: liveStatus,
-          alreadyExists: true
-        };
+    const slug = template.msg91_slug || template.msg91_template_id;
+
+    // Check live templates list from MSG91
+    let matchedLive = null;
+    try {
+      const liveList = await msg91Provider.listTemplatesInMsg91();
+      if (Array.isArray(liveList)) {
+        matchedLive = liveList.find(lt =>
+          String(lt.slug) === String(slug) ||
+          String(lt.id) === String(slug) ||
+          String(lt.name).toLowerCase() === String(template.name).toLowerCase()
+        );
+      }
+    } catch (err) {
+      console.warn('[MailService] Live list fetch warning during sync:', err.message);
+    }
+
+    if (matchedLive) {
+      const norm = msg91Provider.normalizeMsg91Status(matchedLive);
+      const msg91Id = String(matchedLive.id || matchedLive.template_id || slug);
+      const msg91Slug = String(matchedLive.slug || slug);
+      const msg91VersionId = matchedLive.version_id || matchedLive.active_version_id ? String(matchedLive.version_id || matchedLive.active_version_id) : null;
+
+      await db.query(
+        `UPDATE email_templates 
+         SET msg91_template_id = ?, msg91_slug = ?, msg91_version_id = ?, msg91_status = ?, msg91_status_id = ?, is_active = ?, is_draft = ?, reason_id = ?, mail_type_id = ? 
+         WHERE id = ?`,
+        [
+          msg91Id,
+          msg91Slug,
+          msg91VersionId,
+          norm.status,
+          norm.msg91StatusId,
+          norm.isActive ? 1 : 0,
+          norm.isDraft ? 1 : 0,
+          norm.reasonId ? String(norm.reasonId) : null,
+          matchedLive.mail_type_id ? String(matchedLive.mail_type_id) : null,
+          id
+        ]
+      );
+
+      // Sync versions if returned by MSG91 API
+      if (Array.isArray(matchedLive.versions)) {
+        for (const v of matchedLive.versions) {
+          const vNorm = msg91Provider.normalizeMsg91Status(v);
+          const vId = String(v.id || v.version_id || '');
+          const [vExist] = await db.query('SELECT id FROM email_template_versions WHERE crm_template_id = ? AND msg91_version_id = ?', [id, vId]);
+          if (vExist.length > 0) {
+            await db.query(
+              `UPDATE email_template_versions 
+               SET version_name = ?, subject = ?, body = ?, variables = ?, template_version_status = ?, is_active = ? 
+               WHERE id = ?`,
+              [
+                v.name || v.version_name || 'v1',
+                v.subject || template.subject,
+                v.body || template.body_html,
+                JSON.stringify(v.variables || []),
+                vNorm.status,
+                vNorm.isActive ? 1 : 0,
+                vExist[0].id
+              ]
+            );
+          } else {
+            await db.query(
+              `INSERT INTO email_template_versions 
+               (crm_template_id, msg91_version_id, msg91_template_id, version_name, subject, body, variables, template_version_status, is_active) 
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [
+                id,
+                vId,
+                msg91Id,
+                v.name || v.version_name || 'v1',
+                v.subject || template.subject,
+                v.body || template.body_html,
+                JSON.stringify(v.variables || []),
+                vNorm.status,
+                vNorm.isActive ? 1 : 0
+              ]
+            );
+          }
+        }
+      }
+
+      return this.getTemplateById(id);
+    }
+
+    // If template does not exist on MSG91 or forceReupload requested, post to MSG91
+    if (!matchedLive || forceReupload) {
+      const result = await msg91Provider.createTemplateInMsg91({
+        id: template.id,
+        name: template.name,
+        subject: template.subject,
+        body_html: template.body_html,
+        slug: template.msg91_slug
+      });
+
+      if (result?.msg91_template_id) {
+        await db.query(
+          `UPDATE email_templates 
+           SET msg91_template_id = ?, msg91_slug = ?, msg91_status = 'PENDING', is_active = 0, is_draft = 0 
+           WHERE id = ?`,
+          [result.msg91_template_id, result.msg91_slug, id]
+        );
       }
     }
 
-    // Otherwise, post template to MSG91
-    const result = await msg91Provider.createTemplateInMsg91({
-      id: template.id,
-      name: template.name,
-      subject: template.subject,
-      body_html: template.body_html,
-      slug: template.msg91_slug
-    });
-
-    if (result?.msg91_template_id) {
-      await db.query(
-        'UPDATE email_templates SET msg91_template_id = ?, msg91_slug = ? WHERE id = ?',
-        [result.msg91_template_id, result.msg91_slug, id]
-      );
-    }
     return this.getTemplateById(id);
   }
 
@@ -186,7 +264,7 @@ class MailService {
     for (const t of templates) {
       try {
         const synced = await this.syncTemplateToMsg91(t.id, forceReupload);
-        results.push({ id: t.id, name: t.name, status: 'synced', msg91_slug: synced.msg91_slug, msg91_status: synced.msg91_status || 'submitted' });
+        results.push({ id: t.id, name: t.name, status: 'synced', msg91_slug: synced.msg91_slug, msg91_status: synced.msg91_status || 'UNKNOWN' });
       } catch (err) {
         results.push({ id: t.id, name: t.name, status: 'error', error: err.message });
       }
@@ -199,29 +277,6 @@ class MailService {
       const liveTemplates = await msg91Provider.listTemplatesInMsg91();
       const localTemplates = await this.getTemplates();
 
-      const parseMsg91Status = (matchedLive, hasSlug) => {
-        if (!hasSlug) return 'not_uploaded';
-        if (!matchedLive) return 'approved'; // If slug is registered in CRM DB, default to approved!
-
-        const statusVal = String(
-          matchedLive.status || 
-          matchedLive.approval_status || 
-          matchedLive.verification_status || 
-          matchedLive.state || 
-          matchedLive.is_approved || 
-          ''
-        ).toLowerCase();
-
-        if (statusVal === 'pending' || statusVal === 'in_review' || statusVal === '0' || statusVal === 'false') {
-          return 'pending';
-        }
-        if (statusVal === 'rejected' || statusVal === 'disapproved' || statusVal === '2') {
-          return 'rejected';
-        }
-        return 'approved';
-      };
-
-      // Combine local template data with MSG91 live response
       const mapped = localTemplates.map(loc => {
         const slug = loc.msg91_slug || loc.msg91_template_id;
         let matchedLive = null;
@@ -232,13 +287,28 @@ class MailService {
             String(lt.name).toLowerCase() === String(loc.name).toLowerCase()
           );
         }
+
+        const norm = msg91Provider.normalizeMsg91Status(matchedLive || {
+          status: loc.msg91_status,
+          status_id: loc.msg91_status_id,
+          is_active: loc.is_active,
+          is_draft: loc.is_draft,
+          reason_id: loc.reason_id
+        });
+
         return {
           id: loc.id,
           name: loc.name,
           subject: loc.subject,
           msg91_slug: loc.msg91_slug,
-          msg91_template_id: loc.msg91_template_id,
-          liveStatus: parseMsg91Status(matchedLive, Boolean(slug)),
+          msg91_template_id: loc.msg91_template_id ? String(loc.msg91_template_id) : null,
+          msg91_version_id: loc.msg91_version_id ? String(loc.msg91_version_id) : null,
+          msg91_status: norm.status,
+          msg91_status_id: norm.msg91StatusId,
+          is_active: norm.isActive,
+          is_draft: norm.isDraft,
+          reason_id: norm.reasonId,
+          usable: norm.usable,
           matchedLive
         };
       });
@@ -290,6 +360,25 @@ class MailService {
       const err = new Error('Subject and Mail Body content are required');
       err.statusCode = 400;
       throw err;
+    }
+
+    // Section 8 & 11: Validate template usability if selected
+    if (templateId) {
+      const template = await this.getTemplateById(templateId);
+      if (template && (template.msg91_slug || template.msg91_template_id)) {
+        const norm = msg91Provider.normalizeMsg91Status({
+          status: template.msg91_status,
+          status_id: template.msg91_status_id,
+          is_active: template.is_active,
+          is_draft: template.is_draft,
+          reason_id: template.reason_id
+        });
+        if (!norm.usable && norm.status !== 'ACTIVE') {
+          const err = new Error(`Cannot send email using MSG91: Template "${template.name}" status is ${norm.status}. Only ACTIVE templates can be used.`);
+          err.statusCode = 422;
+          throw err;
+        }
+      }
     }
 
     // Build recipient list

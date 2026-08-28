@@ -74,6 +74,16 @@ class MailController {
     const results = await mailService.getMsg91EmailAnalytics(req.query);
     res.json(ApiResponse.success(results));
   }
+
+  async getTemplateVersionDetails(req, res) {
+    try {
+      const msg91Provider = require('../../integrations/email/msg91.provider');
+      const data = await msg91Provider.getTemplateVersionDetails(req.params.versionId);
+      res.json(ApiResponse.success(data));
+    } catch (err) {
+      res.status(500).json(ApiResponse.error(err.message));
+    }
+  }
 }
 
 module.exports = new MailController();
