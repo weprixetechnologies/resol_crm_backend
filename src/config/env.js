@@ -26,5 +26,10 @@ module.exports = {
   SMTP_USER: process.env.SMTP_USER || '',
   SMTP_PASS: process.env.SMTP_PASS || '',
   SMTP_FROM_EMAIL: process.env.SMTP_FROM_EMAIL || '',
-  SMTP_FROM_NAME: process.env.SMTP_FROM_NAME || 'RESOL CRM'
+  SMTP_FROM_NAME: process.env.SMTP_FROM_NAME || 'RESOL CRM',
+  MSG91_AUTH_KEY: process.env.MSG91_AUTH_KEY || '',
+  MSG91_DOMAIN: process.env.MSG91_DOMAIN || '',
+  MSG91_FROM_EMAIL: process.env.MSG91_FROM_EMAIL || '',
+  MSG91_FROM_NAME: process.env.MSG91_FROM_NAME || 'RESOL CRM',
+  MSG91_DEFAULT_TEMPLATE_ID: process.env.MSG91_DEFAULT_TEMPLATE_ID || ''
 };

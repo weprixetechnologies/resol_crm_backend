@@ -1,11 +1,16 @@
 const db = require('../../config/db');
 const settingsService = require('../settings/settings.service');
 const auditService = require('../audit/audit.service');
-const nodemailerProvider = require('../../integrations/email/nodemailer.provider');
+const { getActiveEmailProvider, msg91Provider, nodemailerProvider } = require('../../integrations/email');
 
 class MailService {
   async testConnection(customSettings = null) {
-    return nodemailerProvider.verifyConnection(customSettings);
+    const provider = await getActiveEmailProvider(customSettings?.email_provider);
+    return provider.verifyConnection(customSettings);
+  }
+
+  async testMsg91Connection(customSettings = null) {
+    return msg91Provider.verifyConnection(customSettings);
   }
 
   async testGMassConnection(customSettings = null) {

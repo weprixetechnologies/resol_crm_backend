@@ -2,7 +2,7 @@ const { Worker } = require('bullmq');
 const connection = require('../config/bullConnection');
 const db = require('../config/db');
 const mailService = require('../modules/mail/mail.service');
-const nodemailerProvider = require('../integrations/email/nodemailer.provider');
+const { getActiveEmailProvider } = require('../integrations/email');
 
 const emailWorker = new Worker(
   'emailQueue',
@@ -18,32 +18,43 @@ const emailWorker = new Worker(
         throw new Error('Recipient email is missing');
       }
 
-      // Execute send via Nodemailer SMTP Provider
-      await nodemailerProvider.sendMail({
+      const crqid = campaignId
+        ? `CRM_CR_${campaignId}_${recipient.user_id || recipientEmail.replace(/[^a-zA-Z0-9]/g, '')}`
+        : logId
+          ? `CRM_LOG_${logId}`
+          : `CRM_GEN_${Date.now()}_${recipient.user_id || recipientEmail.replace(/[^a-zA-Z0-9]/g, '')}`;
+
+      // Execute send via active Email Provider (MSG91 or Nodemailer)
+      const provider = await getActiveEmailProvider();
+      const sendRes = await provider.sendTransactional({
         to: recipientEmail,
         subject: finalSubject,
-        html: finalBody
+        html: finalBody,
+        templateId,
+        crqid
       });
+
+      const msgId = sendRes?.messageId || null;
 
       // Update log to 'sent'
       if (logId) {
         await db.query(
-          `UPDATE email_logs SET status = 'sent', error_message = NULL WHERE id = ?`,
-          [logId]
+          `UPDATE email_logs SET status = 'sent', crqid = ?, msg_id = ?, error_message = NULL WHERE id = ?`,
+          [crqid, msgId, logId]
         );
       } else {
         await db.query(
-          `INSERT INTO email_logs (recipient_email, recipient_name, user_id, template_id, subject, status, sent_by)
-           VALUES (?, ?, ?, ?, ?, 'sent', ?)`,
-          [recipient.email, recipient.name || null, recipient.user_id || null, templateId || null, finalSubject, senderId]
+          `INSERT INTO email_logs (crqid, msg_id, recipient_email, recipient_name, user_id, template_id, subject, status, sent_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'sent', ?)`,
+          [crqid, msgId, recipient.email, recipient.name || null, recipient.user_id || null, templateId || null, finalSubject, senderId]
         );
       }
 
       // Update campaign_recipients status if associated with a campaign
       if (campaignId) {
         await db.query(
-          `UPDATE campaign_recipients SET status = 'sent', sent_at = NOW() WHERE campaign_id = ? AND (contact_id = ? OR email_address = ?)`,
-          [campaignId, recipient.user_id || null, recipientEmail]
+          `UPDATE campaign_recipients SET status = 'sent', crqid = ?, msg_id = ?, sent_at = NOW() WHERE campaign_id = ? AND (contact_id = ? OR email_address = ?)`,
+          [crqid, msgId, campaignId, recipient.user_id || null, recipientEmail]
         );
       }
 

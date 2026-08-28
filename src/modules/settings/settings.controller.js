@@ -17,6 +17,12 @@ class SettingsController {
     const result = await nodemailerProvider.verifyConnection(req.body);
     res.json(ApiResponse.success(result, 'SMTP Connection test succeeded!'));
   }
+
+  async testMsg91Connection(req, res) {
+    const { msg91Provider } = require('../../integrations/email');
+    const result = await msg91Provider.verifyConnection(req.body);
+    res.json(ApiResponse.success(result, 'MSG91 API Connection test succeeded!'));
+  }
 }
 
 module.exports = new SettingsController();

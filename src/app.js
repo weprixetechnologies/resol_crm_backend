@@ -32,6 +32,7 @@ const importRoutes = require('./modules/import/import.routes');
 const dashboardRoutes = require('./modules/dashboard/dashboard.routes');
 const mailRoutes = require('./modules/mail/mail.routes');
 const campaignRoutes = require('./modules/campaigns/campaign.routes');
+const webhookRoutes = require('./modules/webhooks/webhook.routes');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/staff', staffRoutes);
@@ -44,6 +45,7 @@ app.use('/api/import', importRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/mail', mailRoutes);
 app.use('/api/campaigns', campaignRoutes);
+app.use('/api/webhooks', webhookRoutes);
 
 // 404 Handler
 app.use((req, res, next) => {
