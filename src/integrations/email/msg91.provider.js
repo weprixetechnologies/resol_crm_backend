@@ -157,11 +157,24 @@ class Msg91Provider extends EmailProvider {
       payload.crqid = options.crqid || options.crqId;
     }
 
-    let msg91TemplateId = options.msg91_template_id || options.msg91TemplateId || config.defaultTemplateId || '';
-    if (typeof msg91TemplateId === 'number' || (typeof msg91TemplateId === 'string' && /^\d+$/.test(msg91TemplateId.trim()))) {
+    let msg91TemplateId = options.msg91_template_id || options.msg91TemplateId || options.templateId || options.template_id || config.defaultTemplateId || '';
+    if (typeof msg91TemplateId === 'number' || (typeof msg91TemplateId === 'string' && /^\d+$/.test(String(msg91TemplateId).trim()))) {
       msg91TemplateId = ''; // Ignore internal numeric CRM database template ID
     } else if (typeof msg91TemplateId === 'string') {
       msg91TemplateId = msg91TemplateId.trim();
+    }
+
+    if (!msg91TemplateId) {
+      try {
+        const [dbRows] = await db.query(
+          'SELECT msg91_slug, msg91_template_id FROM email_templates WHERE (msg91_slug IS NOT NULL AND msg91_slug != "") OR (msg91_template_id IS NOT NULL AND msg91_template_id != "") ORDER BY id ASC LIMIT 1'
+        );
+        if (dbRows.length > 0) {
+          msg91TemplateId = dbRows[0].msg91_slug || dbRows[0].msg91_template_id;
+        }
+      } catch (fErr) {
+        console.warn('[Msg91Provider] Fallback template lookup skipped:', fErr.message);
+      }
     }
 
     if (msg91TemplateId && msg91TemplateId.length > 0) {
@@ -264,11 +277,24 @@ class Msg91Provider extends EmailProvider {
         domain: domain
       };
 
-      let msg91TemplateId = campaign.msg91_template_id || campaign.msg91TemplateId || config.defaultTemplateId || '';
-      if (typeof msg91TemplateId === 'number' || (typeof msg91TemplateId === 'string' && /^\d+$/.test(msg91TemplateId.trim()))) {
+      let msg91TemplateId = campaign.msg91_template_id || campaign.msg91TemplateId || campaign.templateId || campaign.template_id || config.defaultTemplateId || '';
+      if (typeof msg91TemplateId === 'number' || (typeof msg91TemplateId === 'string' && /^\d+$/.test(String(msg91TemplateId).trim()))) {
         msg91TemplateId = ''; // Ignore internal numeric CRM database template ID
       } else if (typeof msg91TemplateId === 'string') {
         msg91TemplateId = msg91TemplateId.trim();
+      }
+
+      if (!msg91TemplateId) {
+        try {
+          const [dbRows] = await db.query(
+            'SELECT msg91_slug, msg91_template_id FROM email_templates WHERE (msg91_slug IS NOT NULL AND msg91_slug != "") OR (msg91_template_id IS NOT NULL AND msg91_template_id != "") ORDER BY id ASC LIMIT 1'
+          );
+          if (dbRows.length > 0) {
+            msg91TemplateId = dbRows[0].msg91_slug || dbRows[0].msg91_template_id;
+          }
+        } catch (fErr) {
+          console.warn('[Msg91Provider] Campaign fallback template lookup skipped:', fErr.message);
+        }
       }
 
       if (msg91TemplateId && msg91TemplateId.length > 0) {
