@@ -148,12 +148,15 @@ class Msg91Provider extends EmailProvider {
       domain: domain
     };
 
-    if (options.crqid || options.crqId) {
-      payload.crqid = options.crqid || options.crqId;
+    let msg91TemplateId = options.msg91_template_id || options.msg91TemplateId || config.defaultTemplateId || '';
+    if (typeof msg91TemplateId === 'number' || (typeof msg91TemplateId === 'string' && /^\d+$/.test(msg91TemplateId.trim()))) {
+      msg91TemplateId = ''; // Ignore internal numeric CRM database template ID
+    } else if (typeof msg91TemplateId === 'string') {
+      msg91TemplateId = msg91TemplateId.trim();
     }
 
-    if (targetTemplateId) {
-      payload.template_id = targetTemplateId;
+    if (msg91TemplateId && msg91TemplateId.length > 0) {
+      payload.template_id = msg91TemplateId;
     }
 
     const response = await fetch('https://control.msg91.com/api/v5/email/send', {
@@ -234,8 +237,15 @@ class Msg91Provider extends EmailProvider {
         domain: domain
       };
 
-      if (targetTemplateId) {
-        payload.template_id = targetTemplateId;
+      let msg91TemplateId = campaign.msg91_template_id || campaign.msg91TemplateId || config.defaultTemplateId || '';
+      if (typeof msg91TemplateId === 'number' || (typeof msg91TemplateId === 'string' && /^\d+$/.test(msg91TemplateId.trim()))) {
+        msg91TemplateId = ''; // Ignore internal numeric CRM database template ID
+      } else if (typeof msg91TemplateId === 'string') {
+        msg91TemplateId = msg91TemplateId.trim();
+      }
+
+      if (msg91TemplateId && msg91TemplateId.length > 0) {
+        payload.template_id = msg91TemplateId;
       }
 
       const response = await fetch('https://control.msg91.com/api/v5/email/send', {
