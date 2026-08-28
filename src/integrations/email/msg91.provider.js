@@ -179,6 +179,9 @@ class Msg91Provider extends EmailProvider {
 
     if (msg91TemplateId && msg91TemplateId.length > 0) {
       payload.template_id = msg91TemplateId;
+      delete recipients[0].variables.body;
+      delete recipients[0].variables.html;
+      delete recipients[0].variables.text;
     } else {
       payload.body = {
         type: 'text/html',
@@ -299,6 +302,11 @@ class Msg91Provider extends EmailProvider {
 
       if (msg91TemplateId && msg91TemplateId.length > 0) {
         payload.template_id = msg91TemplateId;
+        batchRecipients.forEach(r => {
+          delete r.variables.body;
+          delete r.variables.html;
+          delete r.variables.text;
+        });
       } else {
         payload.body = {
           type: 'text/html',

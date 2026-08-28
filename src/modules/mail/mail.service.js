@@ -142,6 +142,49 @@ class MailService {
     return { success: true };
   }
 
+  // --- MSG91 TEMPLATE SYNC & LIVE MAPPING ---
+  async syncTemplateToMsg91(id) {
+    const template = await this.getTemplateById(id);
+    const result = await msg91Provider.createTemplateInMsg91({
+      id: template.id,
+      name: template.name,
+      subject: template.subject,
+      body_html: template.body_html,
+      slug: template.msg91_slug
+    });
+
+    if (result?.msg91_template_id) {
+      await db.query(
+        'UPDATE email_templates SET msg91_template_id = ?, msg91_slug = ? WHERE id = ?',
+        [result.msg91_template_id, result.msg91_slug, id]
+      );
+    }
+    return this.getTemplateById(id);
+  }
+
+  async syncAllTemplatesToMsg91() {
+    const templates = await this.getTemplates();
+    const results = [];
+    for (const t of templates) {
+      try {
+        const synced = await this.syncTemplateToMsg91(t.id);
+        results.push({ id: t.id, name: t.name, status: 'synced', msg91_slug: synced.msg91_slug });
+      } catch (err) {
+        results.push({ id: t.id, name: t.name, status: 'error', error: err.message });
+      }
+    }
+    return results;
+  }
+
+  async getMsg91TemplatesLive() {
+    try {
+      const liveTemplates = await msg91Provider.listTemplatesInMsg91();
+      return liveTemplates;
+    } catch (err) {
+      return { error: err.message };
+    }
+  }
+
   // --- VARIABLE INTERPOLATION ---
   interpolate(text, customer) {
     if (!text) return '';

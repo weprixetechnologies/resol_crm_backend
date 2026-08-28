@@ -49,6 +49,21 @@ class MailController {
     const logs = await mailService.getLogs(page, limit, search);
     res.json(ApiResponse.success(logs));
   }
+
+  async syncTemplateToMsg91(req, res) {
+    const result = await mailService.syncTemplateToMsg91(req.params.id);
+    res.json(ApiResponse.success(result, 'Template successfully synced to MSG91!'));
+  }
+
+  async syncAllTemplatesToMsg91(req, res) {
+    const results = await mailService.syncAllTemplatesToMsg91();
+    res.json(ApiResponse.success(results, 'Batch template sync to MSG91 completed!'));
+  }
+
+  async getMsg91TemplatesLive(req, res) {
+    const results = await mailService.getMsg91TemplatesLive();
+    res.json(ApiResponse.success(results));
+  }
 }
 
 module.exports = new MailController();
