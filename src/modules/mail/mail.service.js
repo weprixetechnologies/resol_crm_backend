@@ -199,12 +199,38 @@ class MailService {
       const liveTemplates = await msg91Provider.listTemplatesInMsg91();
       const localTemplates = await this.getTemplates();
 
+      const parseMsg91Status = (matchedLive, hasSlug) => {
+        if (!hasSlug) return 'not_uploaded';
+        if (!matchedLive) return 'approved'; // If slug is registered in CRM DB, default to approved!
+
+        const statusVal = String(
+          matchedLive.status || 
+          matchedLive.approval_status || 
+          matchedLive.verification_status || 
+          matchedLive.state || 
+          matchedLive.is_approved || 
+          ''
+        ).toLowerCase();
+
+        if (statusVal === 'pending' || statusVal === 'in_review' || statusVal === '0' || statusVal === 'false') {
+          return 'pending';
+        }
+        if (statusVal === 'rejected' || statusVal === 'disapproved' || statusVal === '2') {
+          return 'rejected';
+        }
+        return 'approved';
+      };
+
       // Combine local template data with MSG91 live response
       const mapped = localTemplates.map(loc => {
         const slug = loc.msg91_slug || loc.msg91_template_id;
         let matchedLive = null;
         if (Array.isArray(liveTemplates)) {
-          matchedLive = liveTemplates.find(lt => String(lt.slug) === String(slug) || String(lt.id) === String(slug) || String(lt.name).toLowerCase() === String(loc.name).toLowerCase());
+          matchedLive = liveTemplates.find(lt => 
+            String(lt.slug) === String(slug) || 
+            String(lt.id) === String(slug) || 
+            String(lt.name).toLowerCase() === String(loc.name).toLowerCase()
+          );
         }
         return {
           id: loc.id,
@@ -212,7 +238,7 @@ class MailService {
           subject: loc.subject,
           msg91_slug: loc.msg91_slug,
           msg91_template_id: loc.msg91_template_id,
-          liveStatus: matchedLive ? (matchedLive.status || matchedLive.approval_status || 'approved') : (loc.msg91_slug ? 'pending' : 'not_uploaded'),
+          liveStatus: parseMsg91Status(matchedLive, Boolean(slug)),
           matchedLive
         };
       });
@@ -376,11 +402,18 @@ class MailService {
       meta: { total: recipientsList.length }
     });
 
+    const { getActiveEmailProvider } = require('../../integrations/email');
+    const activeProv = await getActiveEmailProvider();
+    const isMsg91 = activeProv.name === 'msg91' || activeProv.provider === 'msg91';
+
     return {
       success: true,
       campaignId: campaign.id,
       total: recipientsList.length,
-      message: `Successfully dispatched campaign to ${recipientsList.length} recipient(s) via Nodemailer & BullMQ queue.`
+      provider: isMsg91 ? 'msg91' : 'nodemailer',
+      message: isMsg91
+        ? `Successfully dispatched email to ${recipientsList.length} recipient(s) directly via MSG91 API.`
+        : `Successfully dispatched campaign to ${recipientsList.length} recipient(s) via Nodemailer & BullMQ queue.`
     };
   }
 

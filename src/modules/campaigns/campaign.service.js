@@ -221,7 +221,7 @@ class CampaignService {
       const { getActiveEmailProvider } = require('../../integrations/email');
       const provider = await getActiveEmailProvider();
 
-      if (provider.provider === 'msg91') {
+      if (provider.name === 'msg91' || provider.provider === 'msg91') {
         let msg91CampaignTemplateId = campaign.template_id;
         if (campaign.template_id && (typeof campaign.template_id === 'number' || /^\d+$/.test(String(campaign.template_id)))) {
           const [tRows] = await db.query('SELECT msg91_template_id, msg91_slug FROM email_templates WHERE id = ?', [campaign.template_id]);

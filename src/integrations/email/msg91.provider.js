@@ -3,6 +3,12 @@ const settingsService = require('../../modules/settings/settings.service');
 const env = require('../../config/env');
 
 class Msg91Provider extends EmailProvider {
+  constructor() {
+    super();
+    this.name = 'msg91';
+    this.provider = 'msg91';
+  }
+
   /**
    * Resolve MSG91 settings from system_settings (Redis/DB) with env fallback
    */
@@ -431,7 +437,27 @@ class Msg91Provider extends EmailProvider {
       throw new Error(typeof errMsg === 'object' ? JSON.stringify(errMsg) : errMsg);
     }
 
-    return resJson.data || resJson.templates || resJson;
+    let list = [];
+    if (Array.isArray(resJson)) {
+      list = resJson;
+    } else if (Array.isArray(resJson.data)) {
+      list = resJson.data;
+    } else if (Array.isArray(resJson.data?.data)) {
+      list = resJson.data.data;
+    } else if (Array.isArray(resJson.templates)) {
+      list = resJson.templates;
+    } else if (Array.isArray(resJson.data?.templates)) {
+      list = resJson.data.templates;
+    } else if (resJson.data && typeof resJson.data === 'object') {
+      for (const key of Object.keys(resJson.data)) {
+        if (Array.isArray(resJson.data[key])) {
+          list = resJson.data[key];
+          break;
+        }
+      }
+    }
+
+    return list;
   }
 
   /**

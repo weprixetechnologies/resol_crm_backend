@@ -4,6 +4,12 @@ const settingsService = require('../../modules/settings/settings.service');
 const env = require('../../config/env');
 
 class NodemailerProvider extends EmailProvider {
+  constructor() {
+    super();
+    this.name = 'nodemailer';
+    this.provider = 'nodemailer';
+  }
+
   /**
    * Resolve SMTP settings from system_settings (Redis/DB) with env fallback
    */
