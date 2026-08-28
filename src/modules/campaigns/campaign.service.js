@@ -218,29 +218,64 @@ class CampaignService {
     await db.query(`UPDATE email_campaigns SET status = 'sending', updated_at = NOW() WHERE id = ?`, [campaignId]);
 
     try {
-      const { emailQueue } = require('../../queues/email.queue');
+      const { getActiveEmailProvider } = require('../../integrations/email');
+      const provider = await getActiveEmailProvider();
 
-      for (const r of recipients) {
-        const recipientEmail = r.email_address || r.contact_email;
-        const recipientObj = {
-          email: recipientEmail,
-          name: r.contact_name || '',
-          user_id: r.contact_id || null,
-          customerObj: {
-            name: r.contact_name || '',
+      if (provider.provider === 'msg91') {
+        const recipientList = recipients.map(r => {
+          const recipientEmail = r.email_address || r.contact_email;
+          const crqid = `CRM_CR_${campaignId}_${r.contact_id || recipientEmail.replace(/[^a-zA-Z0-9]/g, '')}`;
+          return {
             email: recipientEmail,
-            id: r.contact_id || null
-          }
-        };
+            name: r.contact_name || '',
+            contactId: r.contact_id || null,
+            crqid,
+            variables: {
+              name: r.contact_name || '',
+              email: recipientEmail
+            }
+          };
+        });
 
-        await emailQueue.add('sendEmail', {
+        await provider.sendCampaign({
           campaignId,
-          recipient: recipientObj,
           subject: campaign.subject,
           bodyHtml,
-          templateId: campaign.template_id || null,
-          senderId
+          recipients: recipientList,
+          templateId: campaign.template_id || null
         });
+
+        for (const r of recipientList) {
+          await db.query(
+            `UPDATE campaign_recipients SET status = 'sent', crqid = ?, sent_at = NOW() WHERE campaign_id = ? AND (contact_id = ? OR email_address = ?)`,
+            [r.crqid, campaignId, r.contactId, r.email]
+          );
+        }
+      } else {
+        const { emailQueue } = require('../../queues/email.queue');
+
+        for (const r of recipients) {
+          const recipientEmail = r.email_address || r.contact_email;
+          const recipientObj = {
+            email: recipientEmail,
+            name: r.contact_name || '',
+            user_id: r.contact_id || null,
+            customerObj: {
+              name: r.contact_name || '',
+              email: recipientEmail,
+              id: r.contact_id || null
+            }
+          };
+
+          await emailQueue.add('sendEmail', {
+            campaignId,
+            recipient: recipientObj,
+            subject: campaign.subject,
+            bodyHtml,
+            templateId: campaign.template_id || null,
+            senderId
+          });
+        }
       }
 
       await db.query(

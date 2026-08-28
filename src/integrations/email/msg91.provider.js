@@ -103,11 +103,15 @@ class Msg91Provider extends EmailProvider {
     const { to, subject, html, text, from, fromName, templateId, variables } = options;
     const config = await this.getConfig();
 
-    const authKey = config.authKey;
-    const domain = config.domain;
-    const senderEmail = from || config.fromEmail || `info@${domain}`;
-    const senderName = fromName || config.fromName || 'RESOL CRM';
-    const targetTemplateId = templateId || options.template_id || config.defaultTemplateId;
+    const authKey = (config.authKey || '').trim();
+    const rawDomain = (config.domain || '').trim();
+    const domain = rawDomain.replace(/^https?:\/\//i, '').split('/')[0].trim();
+
+    let senderEmail = (from || config.fromEmail || '').trim();
+    if (!senderEmail || !senderEmail.includes('@')) {
+      senderEmail = domain ? `info@${domain}` : 'info@weprixe.in';
+    }
+    const senderName = (fromName || config.fromName || 'RESOL CRM').trim();
 
     if (!authKey) {
       throw new Error('MSG91 Auth Key is not configured in system settings');
@@ -117,14 +121,15 @@ class Msg91Provider extends EmailProvider {
     }
 
     const recipientEmail = typeof to === 'object' ? to.email : to;
-    const recipientName = typeof to === 'object' ? to.name || '' : '';
+    const rawName = typeof to === 'object' ? to.name : '';
+    const recipientName = (rawName && rawName.trim()) ? rawName.trim() : (recipientEmail ? recipientEmail.split('@')[0] : 'Recipient');
 
     const recipients = [
       {
         to: [
           {
             name: recipientName,
-            email: recipientEmail
+            email: recipientEmail ? recipientEmail.trim() : ''
           }
         ],
         variables: {
@@ -133,7 +138,7 @@ class Msg91Provider extends EmailProvider {
           html: html || '',
           text: text || '',
           name: recipientName,
-          email: recipientEmail,
+          email: recipientEmail ? recipientEmail.trim() : '',
           ...(variables || {})
         }
       }
@@ -147,6 +152,10 @@ class Msg91Provider extends EmailProvider {
       },
       domain: domain
     };
+
+    if (options.crqid || options.crqId) {
+      payload.crqid = options.crqid || options.crqId;
+    }
 
     let msg91TemplateId = options.msg91_template_id || options.msg91TemplateId || config.defaultTemplateId || '';
     if (typeof msg91TemplateId === 'number' || (typeof msg91TemplateId === 'string' && /^\d+$/.test(msg91TemplateId.trim()))) {
@@ -173,9 +182,13 @@ class Msg91Provider extends EmailProvider {
     let resJson;
     try { resJson = JSON.parse(resText); } catch { resJson = { raw: resText }; }
 
-    if (!response.ok || resJson.type === 'error' || resJson.status === 'error') {
-      const errMsg = resJson.message || resJson.errors || `MSG91 Email send failed with status ${response.status}`;
-      throw new Error(typeof errMsg === 'object' ? JSON.stringify(errMsg) : errMsg);
+    if (!response.ok || resJson.type === 'error' || resJson.status === 'error' || resJson.errors) {
+      console.error('[Msg91Provider] Send Email Error Response:', JSON.stringify(resJson), 'Payload:', JSON.stringify(payload));
+      let errMsg = resJson.message || resJson.errors || `MSG91 Email send failed with status ${response.status}`;
+      if (typeof errMsg === 'object') {
+        errMsg = JSON.stringify(errMsg);
+      }
+      throw new Error(`MSG91 API Error: ${errMsg}`);
     }
 
     return {
@@ -211,22 +224,28 @@ class Msg91Provider extends EmailProvider {
     const totalResults = [];
 
     for (let i = 0; i < recipients.length; i += batchSize) {
-      const batchRecipients = recipients.slice(i, i + batchSize).map(r => ({
-        to: [
-          {
+      const batchRecipients = recipients.slice(i, i + batchSize).map(r => {
+        const item = {
+          to: [
+            {
+              name: (r.name && r.name.trim()) ? r.name.trim() : (r.email ? r.email.split('@')[0] : 'Recipient'),
+              email: r.email ? r.email.trim() : ''
+            }
+          ],
+          variables: {
+            subject: subject || '',
+            body: bodyHtml || '',
+            html: bodyHtml || '',
             name: r.name || '',
-            email: r.email
+            email: r.email,
+            ...(r.variables || {})
           }
-        ],
-        variables: {
-          subject: subject || '',
-          body: bodyHtml || '',
-          html: bodyHtml || '',
-          name: r.name || '',
-          email: r.email,
-          ...(r.variables || {})
+        };
+        if (r.crqid || r.crqId) {
+          item.crqid = r.crqid || r.crqId;
         }
-      }));
+        return item;
+      });
 
       const payload = {
         recipients: batchRecipients,
