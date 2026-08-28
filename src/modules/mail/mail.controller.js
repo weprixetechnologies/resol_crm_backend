@@ -64,6 +64,16 @@ class MailController {
     const results = await mailService.getMsg91TemplatesLive();
     res.json(ApiResponse.success(results));
   }
+
+  async getMsg91Logs(req, res) {
+    const results = await mailService.getMsg91EmailLogs(req.query);
+    res.json(ApiResponse.success(results));
+  }
+
+  async getMsg91Analytics(req, res) {
+    const results = await mailService.getMsg91EmailAnalytics(req.query);
+    res.json(ApiResponse.success(results));
+  }
 }
 
 module.exports = new MailController();

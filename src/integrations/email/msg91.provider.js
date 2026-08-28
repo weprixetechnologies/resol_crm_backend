@@ -433,6 +433,109 @@ class Msg91Provider extends EmailProvider {
 
     return resJson.data || resJson.templates || resJson;
   }
+
+  /**
+   * Fetches specific template details and live approval status from MSG91
+   * Docs: https://docs.msg91.com/email/email-template-details
+   */
+  async getTemplateDetailsInMsg91(slug) {
+    const config = await this.getConfig();
+    const authKey = (config.authKey || '').trim();
+    if (!authKey || !slug) return null;
+
+    try {
+      const response = await fetch(`https://control.msg91.com/api/v5/email/templates/${slug}`, {
+        method: 'GET',
+        headers: {
+          'authkey': authKey,
+          'Accept': 'application/json'
+        }
+      });
+      if (!response.ok) return null;
+      const resJson = await response.json();
+      return resJson.data || resJson;
+    } catch (err) {
+      console.warn(`[Msg91Provider] Failed to fetch template details for slug "${slug}":`, err.message);
+      return null;
+    }
+  }
+
+  /**
+   * Fetches Email Logs directly from MSG91 REST API
+   * Docs: https://docs.msg91.com/email/email-logs
+   */
+  async getEmailLogsFromMsg91(params = {}) {
+    const config = await this.getConfig();
+    const authKey = (config.authKey || '').trim();
+    if (!authKey) {
+      throw new Error('MSG91 Auth Key is not configured in system settings');
+    }
+
+    const query = new URLSearchParams();
+    if (params.fromDate) query.append('fromDate', params.fromDate);
+    if (params.toDate) query.append('toDate', params.toDate);
+    if (params.page) query.append('page', String(params.page));
+    if (params.limit) query.append('limit', String(params.limit));
+    if (params.status) query.append('status', params.status);
+    if (params.email) query.append('email', params.email);
+
+    const url = `https://control.msg91.com/api/v5/email/logs?${query.toString()}`;
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'authkey': authKey,
+        'Accept': 'application/json'
+      }
+    });
+
+    const resText = await response.text();
+    let resJson;
+    try { resJson = JSON.parse(resText); } catch { resJson = { raw: resText }; }
+
+    if (!response.ok || resJson.type === 'error' || resJson.status === 'error') {
+      const errMsg = resJson.message || resJson.errors || `Failed to fetch MSG91 Email Logs (HTTP ${response.status})`;
+      throw new Error(typeof errMsg === 'object' ? JSON.stringify(errMsg) : errMsg);
+    }
+
+    return resJson.data || resJson.logs || resJson;
+  }
+
+  /**
+   * Fetches Email Analytics & Aggregates directly from MSG91 REST API
+   * Docs: https://docs.msg91.com/email/email-analytics
+   */
+  async getEmailAnalyticsFromMsg91(params = {}) {
+    const config = await this.getConfig();
+    const authKey = (config.authKey || '').trim();
+    if (!authKey) {
+      throw new Error('MSG91 Auth Key is not configured in system settings');
+    }
+
+    const query = new URLSearchParams();
+    if (params.fromDate) query.append('fromDate', params.fromDate);
+    if (params.toDate) query.append('toDate', params.toDate);
+    if (params.domain) query.append('domain', params.domain);
+
+    const url = `https://control.msg91.com/api/v5/email/analytics?${query.toString()}`;
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'authkey': authKey,
+        'Accept': 'application/json'
+      }
+    });
+
+    const resText = await response.text();
+    let resJson;
+    try { resJson = JSON.parse(resText); } catch { resJson = { raw: resText }; }
+
+    if (!response.ok || resJson.type === 'error' || resJson.status === 'error') {
+      const errMsg = resJson.message || resJson.errors || `Failed to fetch MSG91 Email Analytics (HTTP ${response.status})`;
+      throw new Error(typeof errMsg === 'object' ? JSON.stringify(errMsg) : errMsg);
+    }
+
+    return resJson.data || resJson.analytics || resJson;
+  }
 }
 
 module.exports = new Msg91Provider();

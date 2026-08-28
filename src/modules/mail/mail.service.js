@@ -143,8 +143,26 @@ class MailService {
   }
 
   // --- MSG91 TEMPLATE SYNC & LIVE MAPPING ---
-  async syncTemplateToMsg91(id) {
+  async syncTemplateToMsg91(id, forceReupload = false) {
     const template = await this.getTemplateById(id);
+    if (!template) {
+      throw new Error(`Template #${id} not found`);
+    }
+
+    // If template already has a msg91_slug and we are not forcing re-upload, check its live status from MSG91
+    if (template.msg91_slug && !forceReupload) {
+      const details = await msg91Provider.getTemplateDetailsInMsg91(template.msg91_slug);
+      if (details) {
+        const liveStatus = details.status || details.approval_status || 'approved';
+        return {
+          ...template,
+          msg91_status: liveStatus,
+          alreadyExists: true
+        };
+      }
+    }
+
+    // Otherwise, post template to MSG91
     const result = await msg91Provider.createTemplateInMsg91({
       id: template.id,
       name: template.name,
@@ -162,13 +180,13 @@ class MailService {
     return this.getTemplateById(id);
   }
 
-  async syncAllTemplatesToMsg91() {
+  async syncAllTemplatesToMsg91(forceReupload = false) {
     const templates = await this.getTemplates();
     const results = [];
     for (const t of templates) {
       try {
-        const synced = await this.syncTemplateToMsg91(t.id);
-        results.push({ id: t.id, name: t.name, status: 'synced', msg91_slug: synced.msg91_slug });
+        const synced = await this.syncTemplateToMsg91(t.id, forceReupload);
+        results.push({ id: t.id, name: t.name, status: 'synced', msg91_slug: synced.msg91_slug, msg91_status: synced.msg91_status || 'submitted' });
       } catch (err) {
         results.push({ id: t.id, name: t.name, status: 'error', error: err.message });
       }
@@ -179,8 +197,46 @@ class MailService {
   async getMsg91TemplatesLive() {
     try {
       const liveTemplates = await msg91Provider.listTemplatesInMsg91();
-      return liveTemplates;
+      const localTemplates = await this.getTemplates();
+
+      // Combine local template data with MSG91 live response
+      const mapped = localTemplates.map(loc => {
+        const slug = loc.msg91_slug || loc.msg91_template_id;
+        let matchedLive = null;
+        if (Array.isArray(liveTemplates)) {
+          matchedLive = liveTemplates.find(lt => String(lt.slug) === String(slug) || String(lt.id) === String(slug) || String(lt.name).toLowerCase() === String(loc.name).toLowerCase());
+        }
+        return {
+          id: loc.id,
+          name: loc.name,
+          subject: loc.subject,
+          msg91_slug: loc.msg91_slug,
+          msg91_template_id: loc.msg91_template_id,
+          liveStatus: matchedLive ? (matchedLive.status || matchedLive.approval_status || 'approved') : (loc.msg91_slug ? 'pending' : 'not_uploaded'),
+          matchedLive
+        };
+      });
+
+      return { templates: mapped, rawMsg91: liveTemplates };
     } catch (err) {
+      return { error: err.message };
+    }
+  }
+
+  async getMsg91EmailLogs(params = {}) {
+    try {
+      return await msg91Provider.getEmailLogsFromMsg91(params);
+    } catch (err) {
+      console.error('[MailService] Error fetching MSG91 logs:', err.message);
+      return { error: err.message };
+    }
+  }
+
+  async getMsg91EmailAnalytics(params = {}) {
+    try {
+      return await msg91Provider.getEmailAnalyticsFromMsg91(params);
+    } catch (err) {
+      console.error('[MailService] Error fetching MSG91 analytics:', err.message);
       return { error: err.message };
     }
   }

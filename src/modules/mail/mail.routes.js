@@ -26,7 +26,9 @@ router.post('/send', mailController.sendMail);
 // BullMQ Queue Status
 router.get('/queue-status', mailController.getQueueStatus);
 
-// Email Delivery Logs
+// Email Delivery Logs & MSG91 Live Logs & Analytics
 router.get('/logs', mailController.getLogs);
+router.get('/msg91-logs', requireRole('admin'), mailController.getMsg91Logs);
+router.get('/msg91-analytics', requireRole('admin'), mailController.getMsg91Analytics);
 
 module.exports = router;
