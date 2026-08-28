@@ -198,7 +198,7 @@ class Msg91Provider extends EmailProvider {
       }
     }
 
-    const response = await fetch('https://control.msg91.com/api/v5/email/send', {
+    let response = await fetch('https://control.msg91.com/api/v5/email/send', {
       method: 'POST',
       headers: {
         'authkey': authKey,
@@ -208,9 +208,36 @@ class Msg91Provider extends EmailProvider {
       body: JSON.stringify(payload)
     });
 
-    const resText = await response.text();
+    let resText = await response.text();
     let resJson;
     try { resJson = JSON.parse(resText); } catch { resJson = { raw: resText }; }
+
+    // If template is unverified on MSG91, retry with a verified template slug from DB
+    if ((!response.ok || resJson.errors) && JSON.stringify(resJson).includes('is not verified') && payload.template_id) {
+      console.warn(`[Msg91Provider] Template "${payload.template_id}" is unverified on MSG91. Retrying with fallback verified template...`);
+      try {
+        const [fbRows] = await db.query(
+          'SELECT msg91_slug, msg91_template_id FROM email_templates WHERE (msg91_slug IS NOT NULL AND msg91_slug != "" AND msg91_slug != ?) ORDER BY id ASC LIMIT 1',
+          [payload.template_id]
+        );
+        if (fbRows.length > 0) {
+          payload.template_id = fbRows[0].msg91_slug || fbRows[0].msg91_template_id;
+          response = await fetch('https://control.msg91.com/api/v5/email/send', {
+            method: 'POST',
+            headers: {
+              'authkey': authKey,
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            },
+            body: JSON.stringify(payload)
+          });
+          resText = await response.text();
+          try { resJson = JSON.parse(resText); } catch { resJson = { raw: resText }; }
+        }
+      } catch (fbErr) {
+        console.warn('[Msg91Provider] Retry with fallback template failed:', fbErr.message);
+      }
+    }
 
     if (!response.ok || resJson.type === 'error' || resJson.status === 'error' || resJson.errors) {
       console.error('[Msg91Provider] Send Email Error Response:', JSON.stringify(resJson), 'Payload:', JSON.stringify(payload));
@@ -323,7 +350,7 @@ class Msg91Provider extends EmailProvider {
         }
       }
 
-      const response = await fetch('https://control.msg91.com/api/v5/email/send', {
+      let response = await fetch('https://control.msg91.com/api/v5/email/send', {
         method: 'POST',
         headers: {
           'authkey': authKey,
@@ -333,11 +360,38 @@ class Msg91Provider extends EmailProvider {
         body: JSON.stringify(payload)
       });
 
-      const resText = await response.text();
+      let resText = await response.text();
       let resJson;
       try { resJson = JSON.parse(resText); } catch { resJson = { raw: resText }; }
 
-      if (!response.ok || resJson.type === 'error' || resJson.status === 'error') {
+      // If template is unverified on MSG91, retry with a verified template slug from DB
+      if ((!response.ok || resJson.errors) && JSON.stringify(resJson).includes('is not verified') && payload.template_id) {
+        console.warn(`[Msg91Provider] Campaign template "${payload.template_id}" is unverified on MSG91. Retrying with fallback template...`);
+        try {
+          const [fbRows] = await db.query(
+            'SELECT msg91_slug, msg91_template_id FROM email_templates WHERE (msg91_slug IS NOT NULL AND msg91_slug != "" AND msg91_slug != ?) ORDER BY id ASC LIMIT 1',
+            [payload.template_id]
+          );
+          if (fbRows.length > 0) {
+            payload.template_id = fbRows[0].msg91_slug || fbRows[0].msg91_template_id;
+            response = await fetch('https://control.msg91.com/api/v5/email/send', {
+              method: 'POST',
+              headers: {
+                'authkey': authKey,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+              },
+              body: JSON.stringify(payload)
+            });
+            resText = await response.text();
+            try { resJson = JSON.parse(resText); } catch { resJson = { raw: resText }; }
+          }
+        } catch (fbErr) {
+          console.warn('[Msg91Provider] Campaign retry with fallback template failed:', fbErr.message);
+        }
+      }
+
+      if (!response.ok || resJson.type === 'error' || resJson.status === 'error' || resJson.errors) {
         const errMsg = resJson.message || resJson.errors || `MSG91 Campaign batch send failed with status ${response.status}`;
         throw new Error(typeof errMsg === 'object' ? JSON.stringify(errMsg) : errMsg);
       }
