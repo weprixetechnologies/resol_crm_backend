@@ -8,12 +8,12 @@ const emailWorker = new Worker(
   'emailQueue',
   async (job) => {
     const { logId, campaignId, recipient, subject, bodyHtml, templateId, senderId } = job.data;
+    const recipientEmail = recipient && recipient.email ? recipient.email.trim() : '';
 
-    const finalSubject = mailService.interpolate(subject, recipient.customerObj);
-    const finalBody = mailService.interpolate(bodyHtml, recipient.customerObj);
+    const finalSubject = mailService.interpolate(subject, recipient?.customerObj || recipient);
+    const finalBody = mailService.interpolate(bodyHtml, recipient?.customerObj || recipient);
 
     try {
-      const recipientEmail = recipient.email ? recipient.email.trim() : '';
       if (!recipientEmail) {
         throw new Error('Recipient email is missing');
       }
