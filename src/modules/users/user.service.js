@@ -84,10 +84,13 @@ class UserService {
     const tag1Val = tag1 ? tag1.toString().trim() : null;
     const tag2Val = tag2 ? tag2.toString().trim() : null;
 
+    const [[{ maxSl }]] = await db.query('SELECT MAX(sl_no) as maxSl FROM users');
+    const nextSl = (maxSl || 0) + 1;
+
     const [result] = await db.query(
-      `INSERT INTO users (name, designation, department, institute, city, state, country, region_type, country_code, email, email_normalized, mobile, mobile_normalized, status, tag1, tag2, source, created_by, remarks)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [name, designation, department, institute, city, state, countryVal, countryVal, country_code, email, emailNorm, mobile, mobileNorm, userStatus, tag1Val, tag2Val, source, creatorId, remarks || null]
+      `INSERT INTO users (sl_no, name, designation, department, institute, city, state, country, region_type, country_code, email, email_normalized, mobile, mobile_normalized, status, tag1, tag2, source, created_by, remarks)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [nextSl, name, designation, department, institute, city, state, countryVal, countryVal, country_code, email, emailNorm, mobile, mobileNorm, userStatus, tag1Val, tag2Val, source, creatorId, remarks || null]
     );
 
     const newUserId = result.insertId;
@@ -98,10 +101,22 @@ class UserService {
       action: 'USER_CREATE',
       entityType: 'user',
       entityId: newUserId,
-      meta: { source }
+      meta: { source, sl_no: nextSl }
     });
 
     return this.getUserById(newUserId);
+  }
+
+  async syncSerialNumbers(connection = null) {
+    const dbClient = connection || db;
+    await dbClient.query('SET @seq = 0');
+    await dbClient.query('UPDATE users SET sl_no = (@seq := @seq + 1) ORDER BY created_at ASC, id ASC');
+    await dbClient.query(`
+      INSERT INTO system_settings (setting_key, setting_value)
+      VALUES ('serial_sync_pending', 'false')
+      ON DUPLICATE KEY UPDATE setting_value = 'false'
+    `);
+    await redis.del('system_settings');
   }
 
   async getUsers(page = 1, limit = 20, requesterRole = 'staff', requesterId = null, filters = {}) {
@@ -110,6 +125,18 @@ class UserService {
 
     let offset = (page - 1) * limit;
     let queryLimit = limit;
+
+    let isSyncPending = false;
+    const settingsStr = await redis.get('system_settings');
+    if (settingsStr) {
+      const settings = JSON.parse(settingsStr);
+      isSyncPending = settings.serial_sync_pending === true || settings.serial_sync_pending === 'true';
+    } else {
+      const [settingRows] = await db.query("SELECT setting_value FROM system_settings WHERE setting_key = 'serial_sync_pending' LIMIT 1");
+      if (settingRows.length > 0 && (settingRows[0].setting_value === 'true' || settingRows[0].setting_value === true)) {
+        isSyncPending = true;
+      }
+    }
 
     if (fromSNo && fromSNo > 0) {
       const startOffset = fromSNo - 1;
@@ -142,9 +169,19 @@ class UserService {
 
     // Apply Search
     if (filters.search) {
-      baseQuery += ' AND (u.name LIKE ? OR u.email LIKE ? OR u.mobile LIKE ? OR u.city LIKE ? OR u.country LIKE ? OR u.institute LIKE ? OR u.department LIKE ? OR u.designation LIKE ? OR u.tag1 LIKE ? OR u.tag2 LIKE ? OR s.staff_code LIKE ?)';
+      baseQuery += ' AND (u.sl_no LIKE ? OR u.id LIKE ? OR u.name LIKE ? OR u.email LIKE ? OR u.mobile LIKE ? OR u.city LIKE ? OR u.state LIKE ? OR u.country LIKE ? OR u.institute LIKE ? OR u.department LIKE ? OR u.designation LIKE ? OR u.tag1 LIKE ? OR u.tag2 LIKE ? OR s.staff_code LIKE ?)';
       const term = `%${filters.search}%`;
-      params.push(term, term, term, term, term, term, term, term, term, term, term);
+      params.push(term, term, term, term, term, term, term, term, term, term, term, term, term, term);
+    }
+
+    // Apply Serial Range (sl_no)
+    if (fromSNo && fromSNo > 0) {
+      baseQuery += ' AND u.sl_no >= ?';
+      params.push(fromSNo);
+    }
+    if (toSNo && toSNo > 0) {
+      baseQuery += ' AND u.sl_no <= ?';
+      params.push(toSNo);
     }
 
     // Apply Advanced Filters
@@ -185,29 +222,20 @@ class UserService {
       params.push(`${filters.endDate} 23:59:59`);
     }
 
-    const [[{ total: rawTotal }]] = await db.query(`SELECT COUNT(*) as total ${baseQuery}`, params);
-
-    let total = rawTotal;
-    if (fromSNo && fromSNo > 0) {
-      const availableFromStart = Math.max(0, rawTotal - (fromSNo - 1));
-      if (toSNo && toSNo >= fromSNo) {
-        total = Math.min(availableFromStart, toSNo - fromSNo + 1);
-      } else {
-        total = availableFromStart;
-      }
-    }
+    const [[{ total }]] = await db.query(`SELECT COUNT(*) as total ${baseQuery}`, params);
 
     if (queryLimit <= 0) {
-      return { items: [], total, page, totalPages: Math.ceil(total / limit) || 1 };
+      return { items: [], total, page, totalPages: Math.ceil(total / limit) || 1, isSyncPending: !!isSyncPending };
     }
 
-    const [rows] = await db.query(`SELECT u.*, s.staff_code as created_by_code ${baseQuery} ORDER BY u.created_at DESC LIMIT ? OFFSET ?`, [...params, queryLimit, offset]);
+    const [rows] = await db.query(`SELECT u.*, s.staff_code as created_by_code ${baseQuery} ORDER BY u.sl_no DESC, u.id DESC LIMIT ? OFFSET ?`, [...params, queryLimit, offset]);
 
     return {
       items: rows,
       total,
       page,
-      totalPages: Math.ceil(total / limit) || 1
+      totalPages: Math.ceil(total / limit) || 1,
+      isSyncPending: !!isSyncPending
     };
   }
 
@@ -229,9 +257,21 @@ class UserService {
     }
 
     if (filters.search) {
-      baseQuery += ' AND (u.name LIKE ? OR u.email LIKE ? OR u.mobile LIKE ? OR u.country LIKE ? OR u.tag1 LIKE ? OR u.tag2 LIKE ?)';
+      baseQuery += ' AND (u.sl_no LIKE ? OR u.id LIKE ? OR u.name LIKE ? OR u.email LIKE ? OR u.mobile LIKE ? OR u.city LIKE ? OR u.state LIKE ? OR u.country LIKE ? OR u.institute LIKE ? OR u.department LIKE ? OR u.designation LIKE ? OR u.tag1 LIKE ? OR u.tag2 LIKE ? OR s.staff_code LIKE ?)';
       const term = `%${filters.search}%`;
-      params.push(term, term, term, term, term, term);
+      params.push(term, term, term, term, term, term, term, term, term, term, term, term, term, term);
+    }
+
+    const fromSNo = parseInt(filters.fromSNo);
+    const toSNo = parseInt(filters.toSNo);
+
+    if (fromSNo && fromSNo > 0) {
+      baseQuery += ' AND u.sl_no >= ?';
+      params.push(fromSNo);
+    }
+    if (toSNo && toSNo > 0) {
+      baseQuery += ' AND u.sl_no <= ?';
+      params.push(toSNo);
     }
 
     const likeFields = ['city', 'state', 'country', 'institute', 'department', 'designation', 'tag1', 'tag2'];
@@ -271,18 +311,7 @@ class UserService {
       params.push(`${filters.endDate} 23:59:59`);
     }
 
-    let limitOffsetClause = '';
-    const fromSNo = parseInt(filters.fromSNo);
-    const toSNo = parseInt(filters.toSNo);
-
-    if (fromSNo && fromSNo > 0) {
-      const exportOffset = fromSNo - 1;
-      const exportLimit = (toSNo && toSNo >= fromSNo) ? (toSNo - fromSNo + 1) : 1000000;
-      limitOffsetClause = ' LIMIT ? OFFSET ?';
-      params.push(exportLimit, exportOffset);
-    }
-
-    const [rows] = await db.query(`SELECT u.*, s.staff_code as created_by_code ${baseQuery} ORDER BY u.created_at DESC${limitOffsetClause}`, params);
+    const [rows] = await db.query(`SELECT u.*, s.staff_code as created_by_code ${baseQuery} ORDER BY u.sl_no DESC, u.id DESC`, params);
     return rows;
   }
 

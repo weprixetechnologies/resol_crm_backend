@@ -26,11 +26,11 @@ class DeletionService {
       // 2. Insert into archived_users
       await connection.query(
         `INSERT INTO archived_users (
-          id, name, designation, department, institute, city, state, region_type,
+          id, sl_no, name, designation, department, institute, city, state, region_type,
           email, mobile, source, original_created_by, original_created_at, deleted_by, deletion_reason
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          user.id, user.name, user.designation, user.department, user.institute, user.city, user.state, user.region_type,
+          user.id, user.sl_no, user.name, user.designation, user.department, user.institute, user.city, user.state, user.region_type,
           user.email, user.mobile, user.source, user.created_by, user.created_at, adminId, user.deletion_reason
         ]
       );
@@ -38,7 +38,14 @@ class DeletionService {
       // 3. Delete from users
       await connection.query('DELETE FROM users WHERE id = ?', [userId]);
 
-      // 4. Audit Log
+      // 4. Set serial_sync_pending flag in system_settings
+      await connection.query(
+        `INSERT INTO system_settings (setting_key, setting_value)
+         VALUES ('serial_sync_pending', 'true')
+         ON DUPLICATE KEY UPDATE setting_value = 'true'`
+      );
+
+      // 5. Audit Log
       await auditService.log({
         actorId: adminId,
         actorRole: 'admin',
@@ -49,6 +56,8 @@ class DeletionService {
       });
 
       await connection.commit();
+      const redis = require('../../config/redis');
+      await redis.del('system_settings');
     } catch (err) {
       await connection.rollback();
       throw err;
@@ -84,21 +93,23 @@ class DeletionService {
     try {
       await connection.beginTransaction();
 
+      let hasDeleted = false;
       for (const userId of userIds) {
         const [users] = await connection.query('SELECT * FROM users WHERE id = ? AND is_deletion_requested = 1', [userId]);
         if (users.length > 0) {
           const user = users[0];
           await connection.query(
             `INSERT INTO archived_users (
-              id, name, designation, department, institute, city, state, region_type,
+              id, sl_no, name, designation, department, institute, city, state, region_type,
               email, mobile, source, original_created_by, original_created_at, deleted_by, deletion_reason
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
-              user.id, user.name, user.designation, user.department, user.institute, user.city, user.state, user.region_type,
+              user.id, user.sl_no, user.name, user.designation, user.department, user.institute, user.city, user.state, user.region_type,
               user.email, user.mobile, user.source, user.created_by, user.created_at, adminId, user.deletion_reason
             ]
           );
           await connection.query('DELETE FROM users WHERE id = ?', [userId]);
+          hasDeleted = true;
           await auditService.log({
             actorId: adminId,
             actorRole: 'admin',
@@ -110,7 +121,19 @@ class DeletionService {
         }
       }
 
+      if (hasDeleted) {
+        await connection.query(
+          `INSERT INTO system_settings (setting_key, setting_value)
+           VALUES ('serial_sync_pending', 'true')
+           ON DUPLICATE KEY UPDATE setting_value = 'true'`
+        );
+      }
+
       await connection.commit();
+      if (hasDeleted) {
+        const redis = require('../../config/redis');
+        await redis.del('system_settings');
+      }
     } catch (err) {
       await connection.rollback();
       throw err;

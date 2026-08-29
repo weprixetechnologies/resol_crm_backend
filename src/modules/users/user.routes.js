@@ -14,6 +14,7 @@ router.get('/', asyncHandler(userController.getUsers));
 router.get('/export', asyncHandler(userController.exportUsers));
 router.get('/:id', asyncHandler(userController.getUserById));
 router.patch('/:id', asyncHandler(userController.updateUser));
+router.put('/:id', asyncHandler(userController.updateUser));
 
 // Request deletion (usually staff, but admin can also do it directly or delete via another endpoint later)
 router.post('/bulk-request-deletion', asyncHandler(userController.bulkRequestDeletion));
@@ -21,6 +22,9 @@ router.post('/:id/request-deletion', asyncHandler(userController.requestDeletion
 
 // Add remark manually
 router.post('/:id/remarks', asyncHandler(userController.addRemark));
+
+// Sync serial numbers
+router.post('/sync-serial', requireRole(['admin']), asyncHandler(userController.syncSerialNumbers));
 
 // Email Activity History
 router.get('/:id/email-activity', asyncHandler(userController.getEmailActivity));

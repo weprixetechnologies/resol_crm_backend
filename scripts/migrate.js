@@ -28,11 +28,14 @@ async function migrate() {
     await safeAddColumn(`ALTER TABLE archived_users ADD COLUMN tag1 VARCHAR(255) NULL;`);
     await safeAddColumn(`ALTER TABLE archived_users ADD COLUMN tag2 VARCHAR(255) NULL;`);
 
-    // Country & Region field migrations
-    await safeAddColumn(`ALTER TABLE users MODIFY COLUMN region_type VARCHAR(100) NULL;`);
-    await safeAddColumn(`ALTER TABLE users ADD COLUMN country VARCHAR(100) NULL;`);
-    await safeAddColumn(`ALTER TABLE archived_users MODIFY COLUMN region_type VARCHAR(100) NULL;`);
-    await safeAddColumn(`ALTER TABLE archived_users ADD COLUMN country VARCHAR(100) NULL;`);
+    // Serial Number (sl_no) field migrations
+    await safeAddColumn(`ALTER TABLE users ADD COLUMN sl_no BIGINT UNSIGNED NULL;`);
+    await safeAddColumn(`ALTER TABLE archived_users ADD COLUMN sl_no BIGINT UNSIGNED NULL;`);
+
+    // Backfill / Resync serial numbers for existing users
+    console.log('Syncing serial numbers (sl_no) for users table...');
+    await db.query(`SET @seq = 0;`);
+    await db.query(`UPDATE users SET sl_no = (@seq := @seq + 1) ORDER BY created_at ASC, id ASC;`);
 
     // Mailing system tables
     await db.query(`

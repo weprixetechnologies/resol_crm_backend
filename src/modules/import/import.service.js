@@ -173,6 +173,9 @@ class ImportService {
     try {
       await connection.beginTransaction();
 
+      const [[{ maxSl }]] = await connection.query('SELECT MAX(sl_no) as maxSl FROM users');
+      let currentSl = (maxSl || 0) + 1;
+
       const CHUNK_SIZE = 2500;
       let insertedCount = 0;
       let skippedCount = 0;
@@ -198,8 +201,9 @@ class ImportService {
           const tag2Val = row.tag2 || null;
           const safeName = row.name ? row.name.substring(0, 150) : 'Unknown';
 
-          valuePlaceholders.push('(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, \'import\', 1, ?, ?)');
+          valuePlaceholders.push('(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, \'import\', 1, ?, ?)');
           queryParams.push(
+            currentSl++,
             safeName,
             row.designation || null,
             row.department || null,
@@ -223,7 +227,7 @@ class ImportService {
 
         const bulkQuery = `
           INSERT IGNORE INTO users 
-          (name, designation, department, institute, city, state, country, region_type, country_code, email, email_normalized, mobile, mobile_normalized, status, tag1, tag2, source, is_admin_verified, created_by, remarks)
+          (sl_no, name, designation, department, institute, city, state, country, region_type, country_code, email, email_normalized, mobile, mobile_normalized, status, tag1, tag2, source, is_admin_verified, created_by, remarks)
           VALUES ${valuePlaceholders.join(', ')}
         `;
 
@@ -231,6 +235,10 @@ class ImportService {
         insertedCount += result.affectedRows;
         skippedCount += (chunk.length - result.affectedRows);
       }
+
+      // Re-sync serial numbers after bulk insertion to ensure clean sequential numbering
+      const userService = require('../users/user.service');
+      await userService.syncSerialNumbers(connection);
 
       // Handle user remarks for rows that specified remarks
       const remarkRows = rows.filter(r => r.remark && r.remark.trim() !== '');

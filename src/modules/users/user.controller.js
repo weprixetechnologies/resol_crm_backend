@@ -85,13 +85,11 @@ class UserController {
       { header: 'Created At', key: 'created_at', width: 22 }
     ];
 
-    const maxSNo = filters.toSNo ? parseInt(filters.toSNo) : (filters.fromSNo ? (parseInt(filters.fromSNo) + users.length - 1) : users.length);
-
     users.forEach((u, idx) => {
       const countryVal = u.country || u.region_type || '';
 
       worksheet.addRow({
-        s_no: Math.max(1, maxSNo - idx),
+        s_no: u.sl_no || u.id,
         id: u.id,
         name: u.name,
         status: u.status || 'active',
@@ -173,6 +171,11 @@ class UserController {
   async getEmailActivity(req, res) {
     const activity = await userService.getEmailActivity(req.params.id);
     res.json(ApiResponse.success(activity));
+  }
+
+  async syncSerialNumbers(req, res) {
+    await userService.syncSerialNumbers();
+    res.json(ApiResponse.success(null, 'Serial numbers re-synced successfully'));
   }
 }
 

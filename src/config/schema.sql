@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS staff (
 
 CREATE TABLE IF NOT EXISTS users (
   id              BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  sl_no           BIGINT UNSIGNED NULL,
   name            VARCHAR(150) NOT NULL,
   designation     VARCHAR(150) NULL,
   department      VARCHAR(150) NULL,
@@ -43,6 +44,7 @@ CREATE TABLE IF NOT EXISTS users (
 
   UNIQUE KEY uq_email_normalized (email_normalized),
   UNIQUE KEY uq_mobile_normalized (mobile_normalized),
+  INDEX idx_users_sl_no (sl_no),
   INDEX idx_users_created_by (created_by),
   INDEX idx_users_city (city),
   INDEX idx_users_region (region_type),
@@ -53,6 +55,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS archived_users (
   id                 BIGINT UNSIGNED PRIMARY KEY,
+  sl_no              BIGINT UNSIGNED NULL,
   name               VARCHAR(150) NOT NULL,
   designation        VARCHAR(150) NULL,
   department         VARCHAR(150) NULL,
