@@ -6,7 +6,8 @@ class DashboardController {
     const range = req.query.range || '7d';
     const contactValue = parseInt(req.query.contactValue || req.query.value) || 24;
     const contactUnit = (req.query.contactUnit || req.query.unit || 'hours').toLowerCase();
-    const stats = await dashboardService.getStats(req.user, range, { contactValue, contactUnit });
+    const staffCode = req.query.staffCode || req.query.staff_code || '';
+    const stats = await dashboardService.getStats(req.user, range, { contactValue, contactUnit, staffCode });
     res.json(ApiResponse.success(stats));
   }
 

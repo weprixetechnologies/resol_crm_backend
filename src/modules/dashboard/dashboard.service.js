@@ -24,29 +24,36 @@ class DashboardService {
       api: 'Connected' // If they can hit this endpoint, API is connected
     };
 
-    // Calculate Contacts Created Stats based on dynamic value and unit (hours/days)
+    // Calculate Contacts Created Stats based on dynamic value and unit (hours/days) and staff code filter
     const unit = contactOptions.contactUnit === 'days' ? 'days' : 'hours';
     const rawVal = parseInt(contactOptions.contactValue);
     const value = Math.max(1, Math.min(365 * 24, isNaN(rawVal) ? (unit === 'days' ? 7 : 24) : rawVal));
+    const staffCodeFilter = (contactOptions.staffCode || '').trim();
 
     let contactDateSelect, contactGroupClause, contactIntervalClause;
     if (unit === 'days') {
-      contactDateSelect = "DATE_FORMAT(created_at, '%Y-%m-%d') as date";
-      contactGroupClause = "DATE_FORMAT(created_at, '%Y-%m-%d')";
+      contactDateSelect = "DATE_FORMAT(u.created_at, '%Y-%m-%d') as date";
+      contactGroupClause = "DATE_FORMAT(u.created_at, '%Y-%m-%d')";
       contactIntervalClause = `INTERVAL ${value} DAY`;
     } else {
       contactIntervalClause = `INTERVAL ${value} HOUR`;
       if (value > 48) {
-        contactDateSelect = "DATE_FORMAT(created_at, '%Y-%m-%d') as date";
-        contactGroupClause = "DATE_FORMAT(created_at, '%Y-%m-%d')";
+        contactDateSelect = "DATE_FORMAT(u.created_at, '%Y-%m-%d') as date";
+        contactGroupClause = "DATE_FORMAT(u.created_at, '%Y-%m-%d')";
       } else {
-        contactDateSelect = "DATE_FORMAT(created_at, '%Y-%m-%d %H:00:00') as date";
-        contactGroupClause = "DATE_FORMAT(created_at, '%Y-%m-%d %H:00:00')";
+        contactDateSelect = "DATE_FORMAT(u.created_at, '%Y-%m-%d %H:00:00') as date";
+        contactGroupClause = "DATE_FORMAT(u.created_at, '%Y-%m-%d %H:00:00')";
       }
     }
 
-    let contactWhere = `created_at >= NOW() - ${contactIntervalClause}`;
+    let contactWhere = `u.created_at >= NOW() - ${contactIntervalClause}`;
     const contactParams = [];
+
+    if (staffCodeFilter) {
+      contactWhere += ` AND s.staff_code LIKE ?`;
+      contactParams.push(`%${staffCodeFilter}%`);
+    }
+
     if (user.role !== 'admin') {
       const settingsStr = await redis.get('system_settings');
       let staffScope = 'all';
@@ -55,29 +62,37 @@ class DashboardService {
         staffScope = settings.staff_scope || 'all';
       }
       if (staffScope === 'self_only') {
-        contactWhere += ` AND created_by = ?`;
+        contactWhere += ` AND u.created_by = ?`;
         contactParams.push(user.id);
       }
     }
 
     const [[{ contactsCount }]] = await db.query(
-      `SELECT COUNT(*) as contactsCount FROM users WHERE ${contactWhere}`,
+      `SELECT COUNT(*) as contactsCount FROM users u LEFT JOIN staff s ON u.created_by = s.id WHERE ${contactWhere}`,
       contactParams
     );
 
     const [contactChartRows] = await db.query(
       `SELECT ${contactDateSelect}, COUNT(*) as count 
-       FROM users 
+       FROM users u 
+       LEFT JOIN staff s ON u.created_by = s.id 
        WHERE ${contactWhere} 
        GROUP BY ${contactGroupClause} 
        ORDER BY ${contactGroupClause} ASC`,
       contactParams
     );
 
+    // Get active staff list for frontend filter dropdown
+    const [staffList] = await db.query(
+      'SELECT id, name, staff_code FROM staff WHERE is_disabled = 0 AND staff_code IS NOT NULL AND staff_code != "" ORDER BY staff_code ASC'
+    );
+
     const contactsCreatedStats = {
       total: contactsCount || 0,
       value,
       unit,
+      staffCode: staffCodeFilter,
+      staffList: staffList || [],
       chartData: contactChartRows || []
     };
 

@@ -85,13 +85,13 @@ class UserController {
       { header: 'Created At', key: 'created_at', width: 22 }
     ];
 
-    const startSNo = filters.fromSNo ? Math.max(1, parseInt(filters.fromSNo)) : 1;
+    const maxSNo = filters.toSNo ? parseInt(filters.toSNo) : (filters.fromSNo ? (parseInt(filters.fromSNo) + users.length - 1) : users.length);
 
     users.forEach((u, idx) => {
       const countryVal = u.country || u.region_type || '';
 
       worksheet.addRow({
-        s_no: startSNo + idx,
+        s_no: Math.max(1, maxSNo - idx),
         id: u.id,
         name: u.name,
         status: u.status || 'active',
