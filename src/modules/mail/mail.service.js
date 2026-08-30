@@ -548,6 +548,12 @@ class MailService {
       integrationObj = intRows[0];
     }
 
+    const isValidEmail = (emailStr) => {
+      if (!emailStr || typeof emailStr !== 'string') return false;
+      const trimmed = emailStr.trim().toLowerCase();
+      return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
+    };
+
     // Step 13: Resolve MSG91 template ID from database (NEVER accept template_id from frontend)
     const msg91TemplateId = integrationObj ? integrationObj.msg91_template_id : (templateObj ? templateObj.msg91TemplateId : null);
 
@@ -555,12 +561,16 @@ class MailService {
     let recipientList = []; // [{ email, name, user_id, variables }]
 
     if (Array.isArray(recipients) && recipients.length > 0) {
-      recipientList = recipients.map(r => ({
-        email: typeof r === 'string' ? r.trim() : r.email?.trim(),
-        name: typeof r === 'object' ? (r.name || '') : '',
-        user_id: r.user_id || null,
-        variables: r.variables || { name: r.name || '', email: r.email }
-      })).filter(r => r.email);
+      recipientList = recipients.map(r => {
+        const e = typeof r === 'string' ? r.trim() : r.email?.trim();
+        const n = typeof r === 'object' ? (r.name || '') : '';
+        return {
+          email: e || '',
+          name: n,
+          user_id: r.user_id || null,
+          variables: r.variables || { name: n, email: e || '' }
+        };
+      }).filter(r => isValidEmail(r.email));
     } else if (sendToAll) {
       const [customers] = await db.query(
         `SELECT u.*, s.staff_code as created_by_code
@@ -569,12 +579,14 @@ class MailService {
          WHERE u.email IS NOT NULL AND u.email != ''`
       );
       for (const cust of customers) {
-        recipientList.push({
-          email: cust.email.trim(),
-          name: cust.name,
-          user_id: cust.id,
-          variables: { name: cust.name, city: cust.city || '', institute: cust.institute || '', staff_code: cust.created_by_code || '' }
-        });
+        if (isValidEmail(cust.email)) {
+          recipientList.push({
+            email: cust.email.trim().toLowerCase(),
+            name: cust.name,
+            user_id: cust.id,
+            variables: { name: cust.name, city: cust.city || '', institute: cust.institute || '', staff_code: cust.created_by_code || '' }
+          });
+        }
       }
     } else if (Array.isArray(customerIds) && customerIds.length > 0) {
       const [customers] = await db.query(
@@ -582,12 +594,14 @@ class MailService {
         [customerIds]
       );
       for (const cust of customers) {
-        recipientList.push({
-          email: cust.email.trim(),
-          name: cust.name,
-          user_id: cust.id,
-          variables: { name: cust.name, city: cust.city || '', institute: cust.institute || '', staff_code: cust.created_by_code || '' }
-        });
+        if (isValidEmail(cust.email)) {
+          recipientList.push({
+            email: cust.email.trim().toLowerCase(),
+            name: cust.name,
+            user_id: cust.id,
+            variables: { name: cust.name, city: cust.city || '', institute: cust.institute || '', staff_code: cust.created_by_code || '' }
+          });
+        }
       }
     }
 
@@ -595,9 +609,9 @@ class MailService {
       for (const entry of customEmails) {
         const email = typeof entry === 'string' ? entry.trim() : entry.email;
         const name = typeof entry === 'object' ? entry.name : '';
-        if (email && !recipientList.some(r => r.email.toLowerCase() === email.toLowerCase())) {
+        if (isValidEmail(email) && !recipientList.some(r => r.email.toLowerCase() === email.toLowerCase())) {
           recipientList.push({
-            email,
+            email: email.trim().toLowerCase(),
             name: name || email,
             user_id: null,
             variables: { name: name || email, email }
@@ -607,7 +621,7 @@ class MailService {
     }
 
     if (recipientList.length === 0) {
-      const err = new Error('No valid email recipients provided');
+      const err = new Error('No valid recipient email addresses provided (Check email format e.g. user@example.com)');
       err.statusCode = 400;
       throw err;
     }
@@ -647,23 +661,35 @@ class MailService {
         html: mailHtml
       };
 
-      const sendResult = await msg91Provider.sendMail(msg91Payload);
+      try {
+        const sendResult = await msg91Provider.sendMail(msg91Payload);
 
-      // Record email delivery logs
-      for (const r of recipientList) {
-        await db.query(
-          `INSERT INTO email_logs (crqid, msg_id, recipient_email, recipient_name, user_id, template_id, subject, status, sent_by)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'sent', ?)`,
-          [`CRM_MSG91_${Date.now()}_${r.user_id || r.email}`, sendResult.messageId, r.email, r.name, r.user_id, targetCrmTemplateId, mailSubject, senderId]
-        );
+        // Record email delivery logs with 'sent' status on success
+        for (const r of recipientList) {
+          await db.query(
+            `INSERT INTO email_logs (crqid, msg_id, recipient_email, recipient_name, user_id, template_id, subject, status, sent_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'sent', ?)`,
+            [`CRM_MSG91_${Date.now()}_${r.user_id || r.email}`, sendResult.messageId, r.email, r.name, r.user_id, targetCrmTemplateId, mailSubject, senderId]
+          );
+        }
+
+        return {
+          success: true,
+          crmTemplateId: targetCrmTemplateId || null,
+          totalRecipients: recipientList.length,
+          message: `Successfully dispatched email to ${recipientList.length} recipient(s) via MSG91.`
+        };
+      } catch (sendErr) {
+        // Record email delivery logs with 'failed' status on MSG91 API error
+        for (const r of recipientList) {
+          await db.query(
+            `INSERT INTO email_logs (crqid, recipient_email, recipient_name, user_id, template_id, subject, status, error_message, sent_by)
+             VALUES (?, ?, ?, ?, ?, ?, 'failed', ?, ?)`,
+            [`CRM_MSG91_FAIL_${Date.now()}_${r.user_id || r.email}`, r.email, r.name, r.user_id, targetCrmTemplateId, mailSubject, sendErr.message, senderId]
+          );
+        }
+        throw sendErr;
       }
-
-      return {
-        success: true,
-        crmTemplateId: targetCrmTemplateId || null,
-        totalRecipients: recipientList.length,
-        message: `Successfully dispatched email to ${recipientList.length} recipient(s) via MSG91.`
-      };
     }
 
     // Nodemailer / Queue Fallback

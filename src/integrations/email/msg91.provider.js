@@ -201,29 +201,73 @@ class Msg91Provider extends EmailProvider {
       throw new Error('MSG91 Domain is not configured in system settings');
     }
 
-    const recipientEmail = typeof to === 'object' ? to.email : to;
-    const rawName = typeof to === 'object' ? to.name : '';
-    const recipientName = (rawName && rawName.trim()) ? rawName.trim() : (recipientEmail ? recipientEmail.split('@')[0] : 'Recipient');
+    const isValidEmail = (emailStr) => {
+      if (!emailStr || typeof emailStr !== 'string') return false;
+      const trimmed = emailStr.trim().toLowerCase();
+      return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
+    };
 
-    const recipients = [
-      {
-        to: [
-          {
-            name: recipientName,
-            email: recipientEmail ? recipientEmail.trim() : ''
-          }
-        ],
-        variables: {
-          subject: subject || '',
-          body: html || text || '',
-          html: html || '',
-          text: text || '',
-          name: recipientName,
-          email: recipientEmail ? recipientEmail.trim() : '',
-          ...(variables || {})
+    let recipients = [];
+
+    if (Array.isArray(options.recipients) && options.recipients.length > 0) {
+      recipients = options.recipients.map(r => {
+        const toArr = Array.isArray(r.to) ? r.to : [{ name: r.name || 'Recipient', email: r.email }];
+        const validTo = toArr.map(item => ({
+          name: (item.name && String(item.name).trim()) ? String(item.name).trim() : 'Recipient',
+          email: item.email ? String(item.email).trim().toLowerCase() : ''
+        })).filter(item => isValidEmail(item.email));
+
+        const primaryEmail = validTo[0]?.email || '';
+        const primaryName = validTo[0]?.name || 'Recipient';
+
+        const sanitizedVars = { ...(r.variables || {}) };
+        if (sanitizedVars.email === null || sanitizedVars.email === undefined || !isValidEmail(sanitizedVars.email)) {
+          sanitizedVars.email = primaryEmail;
         }
+
+        return {
+          to: validTo,
+          variables: {
+            subject: subject || '',
+            body: html || text || '',
+            html: html || '',
+            text: text || '',
+            name: primaryName,
+            ...sanitizedVars
+          }
+        };
+      }).filter(r => r.to.length > 0);
+    } else {
+      const recipientEmail = (typeof to === 'object' ? to?.email : to) || '';
+      const rawName = typeof to === 'object' ? to?.name : '';
+      const recipientName = (rawName && String(rawName).trim()) ? String(rawName).trim() : (recipientEmail ? String(recipientEmail).split('@')[0] : 'Recipient');
+
+      if (isValidEmail(recipientEmail)) {
+        recipients = [
+          {
+            to: [
+              {
+                name: recipientName,
+                email: String(recipientEmail).trim().toLowerCase()
+              }
+            ],
+            variables: {
+              subject: subject || '',
+              body: html || text || '',
+              html: html || '',
+              text: text || '',
+              name: recipientName,
+              email: String(recipientEmail).trim().toLowerCase(),
+              ...(variables || {})
+            }
+          }
+        ];
       }
-    ];
+    }
+
+    if (recipients.length === 0) {
+      throw new Error('Validation Error: Cannot send email via MSG91 because no valid recipient email address was provided.');
+    }
 
     const payload = {
       recipients,
@@ -258,17 +302,21 @@ class Msg91Provider extends EmailProvider {
       }
     }
 
-    if (msg91TemplateId && msg91TemplateId.length > 0) {
-      payload.template_id = msg91TemplateId;
-    } else {
-      payload.body = {
-        type: 'text/html',
-        data: html || text || '<p>Notification</p>'
-      };
-      if (subject) {
-        payload.subject = subject;
-      }
+    if (!msg91TemplateId || msg91TemplateId.trim().length === 0) {
+      throw new Error('Validation Error: MSG91 requires an approved template_id (unique slug) for email dispatches. Raw HTML dispatches without template_id are not supported.');
     }
+
+    payload.template_id = msg91TemplateId.trim();
+
+    // Strip subject, body, html, text from variables so only template variables are sent
+    recipients.forEach(r => {
+      if (r.variables) {
+        delete r.variables.subject;
+        delete r.variables.body;
+        delete r.variables.html;
+        delete r.variables.text;
+      }
+    });
 
     let response = await fetch('https://control.msg91.com/api/v5/email/send', {
       method: 'POST',
@@ -413,17 +461,21 @@ class Msg91Provider extends EmailProvider {
         }
       }
 
-      if (msg91TemplateId && msg91TemplateId.length > 0) {
-        payload.template_id = msg91TemplateId;
-      } else {
-        payload.body = {
-          type: 'text/html',
-          data: bodyHtml || subject || '<p>Notification</p>'
-        };
-        if (subject) {
-          payload.subject = subject;
-        }
+      if (!msg91TemplateId || msg91TemplateId.trim().length === 0) {
+        throw new Error('Validation Error: MSG91 requires an approved template_id (unique slug) for campaign dispatches. Raw HTML dispatches without template_id are not supported.');
       }
+
+      payload.template_id = msg91TemplateId.trim();
+
+      // Strip subject, body, html, text from variables so only template variables are sent
+      batchRecipients.forEach(r => {
+        if (r.variables) {
+          delete r.variables.subject;
+          delete r.variables.body;
+          delete r.variables.html;
+          delete r.variables.text;
+        }
+      });
 
       let response = await fetch('https://control.msg91.com/api/v5/email/send', {
         method: 'POST',
