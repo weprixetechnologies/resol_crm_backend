@@ -1188,6 +1188,56 @@ class MailService {
       deletedContactId: contactId || null
     };
   }
+
+  async bulkRequestDeletionLogs(body = {}, requesterId = null, requesterRole = 'staff') {
+    const { logIds = [], recipientEmails = [], reason = '' } = body;
+    if (!reason || !reason.trim()) {
+      const err = new Error('Deletion reason/remarks are required');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const cleanReason = reason.trim();
+    let targetEmails = Array.isArray(recipientEmails) ? recipientEmails.filter(Boolean) : [];
+    let targetLogIds = Array.isArray(logIds) ? logIds.filter(Boolean) : [];
+
+    if (targetLogIds.length > 0) {
+      const [logs] = await db.query(
+        `SELECT DISTINCT recipient_email, user_id FROM email_logs WHERE id IN (?) OR crqid IN (?)`,
+        [targetLogIds, targetLogIds]
+      );
+      logs.forEach(l => {
+        if (l.recipient_email) targetEmails.push(l.recipient_email);
+      });
+    }
+
+    targetEmails = [...new Set(targetEmails.map(e => String(e).toLowerCase().trim()))];
+
+    let affectedUsersCount = 0;
+    if (targetEmails.length > 0) {
+      const [updateResult] = await db.query(
+        `UPDATE users SET is_deletion_requested = 1, deletion_reason = ? WHERE LOWER(email) IN (?)`,
+        [cleanReason, targetEmails]
+      );
+      affectedUsersCount = updateResult.affectedRows || 0;
+    }
+
+    const auditService = require('../audit/audit.service');
+    await auditService.log({
+      actorId: requesterId,
+      actorRole: requesterRole,
+      action: 'EMAIL_LOGS_BULK_DELETION_REQUESTED',
+      entityType: 'email_logs',
+      meta: { logIds: targetLogIds, recipientEmails: targetEmails, reason: cleanReason, affectedUsersCount }
+    });
+
+    return {
+      success: true,
+      message: `Deletion request submitted for ${affectedUsersCount} contact(s) linked to ${targetEmails.length} recipient email(s).`,
+      affectedUsersCount,
+      recipientCount: targetEmails.length
+    };
+  }
 }
 
 module.exports = new MailService();

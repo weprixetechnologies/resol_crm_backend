@@ -171,6 +171,13 @@ class MailController {
     const result = await mailService.deleteBouncedContact(req.params.id, deleterId);
     res.json(ApiResponse.success(result, result.message));
   }
+
+  async bulkRequestDeletion(req, res) {
+    const requesterId = req.user ? req.user.id : null;
+    const requesterRole = req.user ? req.user.role : 'staff';
+    const result = await mailService.bulkRequestDeletionLogs(req.body, requesterId, requesterRole);
+    res.json(ApiResponse.success(result, result.message));
+  }
 }
 
 module.exports = new MailController();

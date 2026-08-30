@@ -35,6 +35,7 @@ router.get('/analytics', mailController.getAnalytics);
 
 // Email Delivery Logs & Per-Recipient Journey (PART 18 & 19)
 router.get('/logs', mailController.getLogs);
+router.post('/logs/bulk-request-deletion', mailController.bulkRequestDeletion);
 router.get('/logs/:id', mailController.getLogJourney);
 
 // Log Reconciliation API (PART 20)
