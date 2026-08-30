@@ -30,9 +30,18 @@ router.post('/send', mailController.sendMail);
 // BullMQ Queue Status
 router.get('/queue-status', mailController.getQueueStatus);
 
-// Email Delivery Logs & MSG91 Live Logs & Analytics
+// Email Analytics API (PART 3)
+router.get('/analytics', mailController.getAnalytics);
+
+// Email Delivery Logs & Per-Recipient Journey (PART 18 & 19)
 router.get('/logs', mailController.getLogs);
+router.get('/logs/:id', mailController.getLogJourney);
+
+// Log Reconciliation API (PART 20)
+router.post('/reconcile-logs', requireRole('admin'), mailController.reconcileMsg91Logs);
+
+// Legacy aliases for backwards compatibility
 router.get('/msg91-logs', requireRole('admin'), mailController.getMsg91Logs);
-router.get('/msg91-analytics', requireRole('admin'), mailController.getMsg91Analytics);
+router.get('/msg91-analytics', mailController.getAnalytics);
 
 module.exports = router;

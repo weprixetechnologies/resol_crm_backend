@@ -733,7 +733,8 @@ class Msg91Provider extends EmailProvider {
 
   /**
    * Fetches Email Logs directly from MSG91 REST API
-   * Docs: https://docs.msg91.com/email/email-logs
+   * Endpoint: GET https://control.msg91.com/api/v5/report/logs/mail
+   * Supports maximum 3 days range.
    */
   async getEmailLogsFromMsg91(params = {}) {
     const config = await this.getConfig();
@@ -743,21 +744,31 @@ class Msg91Provider extends EmailProvider {
     }
 
     const query = new URLSearchParams();
-    if (params.fromDate) query.append('fromDate', params.fromDate);
-    if (params.toDate) query.append('toDate', params.toDate);
+    const startDate = params.startDate || params.fromDate;
+    const endDate = params.endDate || params.toDate;
+    if (startDate) query.append('startDate', startDate);
+    if (endDate) query.append('endDate', endDate);
     if (params.page) query.append('page', String(params.page));
     if (params.limit) query.append('limit', String(params.limit));
     if (params.status) query.append('status', params.status);
     if (params.email) query.append('email', params.email);
 
-    const url = `https://control.msg91.com/api/v5/email/logs?${query.toString()}`;
-    const response = await fetch(url, {
+    let url = `https://control.msg91.com/api/v5/report/logs/mail?${query.toString()}`;
+    let response = await fetch(url, {
       method: 'GET',
       headers: {
         'authkey': authKey,
         'Accept': 'application/json'
       }
     });
+
+    if (!response.ok && response.status === 404) {
+      url = `https://control.msg91.com/api/v5/email/logs?${query.toString()}`;
+      response = await fetch(url, {
+        method: 'GET',
+        headers: { 'authkey': authKey, 'Accept': 'application/json' }
+      });
+    }
 
     const resText = await response.text();
     let resJson;
@@ -772,8 +783,9 @@ class Msg91Provider extends EmailProvider {
   }
 
   /**
-   * Fetches Email Analytics & Aggregates directly from MSG91 REST API
-   * Docs: https://docs.msg91.com/email/email-analytics
+   * Fetches Email Analytics directly from MSG91 REST API
+   * Endpoint: GET https://control.msg91.com/api/v5/report/analytics/p/mail
+   * Supports maximum 31 days range.
    */
   async getEmailAnalyticsFromMsg91(params = {}) {
     const config = await this.getConfig();
@@ -783,18 +795,28 @@ class Msg91Provider extends EmailProvider {
     }
 
     const query = new URLSearchParams();
-    if (params.fromDate) query.append('fromDate', params.fromDate);
-    if (params.toDate) query.append('toDate', params.toDate);
+    const startDate = params.startDate || params.fromDate;
+    const endDate = params.endDate || params.toDate;
+    if (startDate) query.append('startDate', startDate);
+    if (endDate) query.append('endDate', endDate);
     if (params.domain) query.append('domain', params.domain);
 
-    const url = `https://control.msg91.com/api/v5/email/analytics?${query.toString()}`;
-    const response = await fetch(url, {
+    let url = `https://control.msg91.com/api/v5/report/analytics/p/mail?${query.toString()}`;
+    let response = await fetch(url, {
       method: 'GET',
       headers: {
         'authkey': authKey,
         'Accept': 'application/json'
       }
     });
+
+    if (!response.ok && response.status === 404) {
+      url = `https://control.msg91.com/api/v5/email/analytics?${query.toString()}`;
+      response = await fetch(url, {
+        method: 'GET',
+        headers: { 'authkey': authKey, 'Accept': 'application/json' }
+      });
+    }
 
     const resText = await response.text();
     let resJson;

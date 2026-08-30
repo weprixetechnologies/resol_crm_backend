@@ -247,7 +247,7 @@ class WebhookService {
 
     if (matchedLog) {
       const shouldUpdate = this.shouldUpdateStatus(matchedLog.status, normalizedEvent);
-      const newStatus = shouldUpdate ? normalizedEvent.toLowerCase() : matchedLog.status;
+      const newStatus = shouldUpdate ? normalizedEvent : matchedLog.status;
 
       const updates = [];
       const params = [];
@@ -261,8 +261,12 @@ class WebhookService {
         updates.push('delivered_at = ?'); params.push(updateTime);
       } else if (normalizedEvent === 'OPENED') {
         if (!matchedLog.opened_at) { updates.push('opened_at = ?'); params.push(updateTime); }
+        if (!matchedLog.first_opened_at) { updates.push('first_opened_at = ?'); params.push(updateTime); }
+        updates.push('last_opened_at = ?', 'open_count = open_count + 1'); params.push(updateTime);
       } else if (normalizedEvent === 'CLICKED') {
         if (!matchedLog.clicked_at) { updates.push('clicked_at = ?'); params.push(updateTime); }
+        if (!matchedLog.first_clicked_at) { updates.push('first_clicked_at = ?'); params.push(updateTime); }
+        updates.push('last_clicked_at = ?', 'click_count = click_count + 1'); params.push(updateTime);
       } else if (normalizedEvent === 'FAILED') {
         if (!matchedLog.failed_at) { updates.push('failed_at = ?'); params.push(updateTime); }
         updates.push('failure_reason = ?', 'failure_category = ?', 'status_code = ?', 'enhanced_status_code = ?');
@@ -276,6 +280,29 @@ class WebhookService {
       if (updates.length > 0) {
         params.push(matchedLog.id);
         await db.query(`UPDATE email_logs SET ${updates.join(', ')} WHERE id = ?`, params);
+      }
+
+      // Insert timeline event into email_events table
+      try {
+        await db.query(
+          `INSERT INTO email_events 
+           (email_log_id, provider, provider_event_id, event_name, event_status, event_timestamp, recipient, msg91_request_id, msg91_uuid, crqid, raw_payload)
+           VALUES (?, 'MSG91', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            matchedLog.id,
+            eventId ? String(eventId) : null,
+            normalizedEvent,
+            normalizedEvent,
+            updateTime,
+            recipient || matchedLog.recipient_email,
+            requestId,
+            uuid,
+            crqid || matchedLog.crqid,
+            safePayloadJson
+          ]
+        );
+      } catch (evtErr) {
+        console.warn('[MSG91 Webhook] email_events insertion warning:', evtErr.message);
       }
     }
 

@@ -126,10 +126,33 @@ async function migrate() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
+    // Email Events Timeline Table
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS email_events (
+        id                  BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        email_log_id        BIGINT UNSIGNED NULL,
+        provider            VARCHAR(50) NOT NULL DEFAULT 'MSG91',
+        provider_event_id   VARCHAR(100) NULL,
+        event_name          VARCHAR(100) NOT NULL,
+        event_status        VARCHAR(50) NULL,
+        event_timestamp     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        recipient           VARCHAR(200) NULL,
+        msg91_request_id    VARCHAR(100) NULL,
+        msg91_uuid          VARCHAR(100) NULL,
+        crqid               VARCHAR(100) NULL,
+        raw_payload         JSON NULL,
+        created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_email_events_log (email_log_id),
+        INDEX idx_email_events_crqid (crqid),
+        INDEX idx_email_events_name (event_name),
+        INDEX idx_email_events_time (event_timestamp)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
     // Modify status columns to VARCHAR(50) to support all webhook events (queued, accepted, delivered, opened, clicked, unsubscribed, complaint, failed)
-    await safeAddColumn(`ALTER TABLE email_logs MODIFY COLUMN status VARCHAR(50) NOT NULL DEFAULT 'sent';`);
+    await safeAddColumn(`ALTER TABLE email_logs MODIFY COLUMN status VARCHAR(50) NOT NULL DEFAULT 'QUEUED';`);
     await safeAddColumn(`ALTER TABLE campaign_recipients MODIFY COLUMN status VARCHAR(50) NOT NULL DEFAULT 'pending';`);
-    await safeAddColumn(`ALTER TABLE email_events MODIFY COLUMN event_type VARCHAR(50) NOT NULL;`);
+    await safeAddColumn(`ALTER TABLE email_events MODIFY COLUMN event_name VARCHAR(100) NOT NULL;`);
 
     // Add MSG91 Template integration columns to email_templates
     await safeAddColumn(`ALTER TABLE email_templates ADD COLUMN msg91_template_id VARCHAR(100) NULL;`);
@@ -162,10 +185,21 @@ async function migrate() {
     await safeAddColumn(`ALTER TABLE email_logs ADD COLUMN crqid VARCHAR(100) NULL;`);
     await safeAddColumn(`ALTER TABLE email_logs ADD COLUMN msg_id VARCHAR(100) NULL;`);
     await safeAddColumn(`ALTER TABLE email_logs ADD COLUMN request_id VARCHAR(100) NULL;`);
+    await safeAddColumn(`ALTER TABLE email_logs ADD COLUMN msg91_uuid VARCHAR(100) NULL;`);
+    await safeAddColumn(`ALTER TABLE email_logs ADD COLUMN msg91_template_id VARCHAR(100) NULL;`);
+    await safeAddColumn(`ALTER TABLE email_logs ADD COLUMN msg91_version_id VARCHAR(100) NULL;`);
+    await safeAddColumn(`ALTER TABLE email_logs ADD COLUMN campaign_id INT UNSIGNED NULL;`);
+    await safeAddColumn(`ALTER TABLE email_logs ADD COLUMN variables JSON NULL;`);
     await safeAddColumn(`ALTER TABLE email_logs ADD COLUMN delivered_at DATETIME NULL;`);
     await safeAddColumn(`ALTER TABLE email_logs ADD COLUMN failed_at DATETIME NULL;`);
     await safeAddColumn(`ALTER TABLE email_logs ADD COLUMN opened_at DATETIME NULL;`);
+    await safeAddColumn(`ALTER TABLE email_logs ADD COLUMN first_opened_at DATETIME NULL;`);
+    await safeAddColumn(`ALTER TABLE email_logs ADD COLUMN last_opened_at DATETIME NULL;`);
+    await safeAddColumn(`ALTER TABLE email_logs ADD COLUMN open_count INT UNSIGNED NOT NULL DEFAULT 0;`);
     await safeAddColumn(`ALTER TABLE email_logs ADD COLUMN clicked_at DATETIME NULL;`);
+    await safeAddColumn(`ALTER TABLE email_logs ADD COLUMN first_clicked_at DATETIME NULL;`);
+    await safeAddColumn(`ALTER TABLE email_logs ADD COLUMN last_clicked_at DATETIME NULL;`);
+    await safeAddColumn(`ALTER TABLE email_logs ADD COLUMN click_count INT UNSIGNED NOT NULL DEFAULT 0;`);
     await safeAddColumn(`ALTER TABLE email_logs ADD COLUMN unsubscribed_at DATETIME NULL;`);
     await safeAddColumn(`ALTER TABLE email_logs ADD COLUMN complained_at DATETIME NULL;`);
     await safeAddColumn(`ALTER TABLE email_logs ADD COLUMN failure_reason TEXT NULL;`);

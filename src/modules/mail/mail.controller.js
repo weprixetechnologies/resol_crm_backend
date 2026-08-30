@@ -125,9 +125,29 @@ class MailController {
     res.json(ApiResponse.success(results));
   }
 
-  async getMsg91Analytics(req, res) {
-    const results = await mailService.getMsg91EmailAnalytics(req.query);
-    res.json(ApiResponse.success(results));
+  async getAnalytics(req, res) {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    const { startDate, endDate } = req.query;
+    const result = await mailService.getAnalytics(startDate, endDate);
+    res.json(result);
+  }
+
+  async getLogs(req, res) {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    const result = await mailService.getLogs(req.query);
+    res.json(ApiResponse.success(result));
+  }
+
+  async getLogJourney(req, res) {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    const result = await mailService.getLogJourney(req.params.id);
+    res.json(result);
+  }
+
+  async reconcileMsg91Logs(req, res) {
+    const { fromDate, toDate, startDate, endDate } = req.body || req.query;
+    const result = await mailService.reconcileMsg91Logs(fromDate || startDate, toDate || endDate);
+    res.json(result);
   }
 
   async getTemplateVersionDetails(req, res) {

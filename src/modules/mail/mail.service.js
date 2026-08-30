@@ -633,16 +633,45 @@ class MailService {
     const activeProvider = await getActiveEmailProvider();
 
     // Log provider communication without authkey
-    console.log(`[MailService] Sending email batch: crmTemplateId=${targetCrmTemplateId || 'none'}, msg91TemplateId=${msg91TemplateId || 'none'}, recipientsCount=${recipientList.length}`);
+    console.log(`[MailService] Pre-flight log creation for batch: crmTemplateId=${targetCrmTemplateId || 'none'}, msg91TemplateId=${msg91TemplateId || 'none'}, recipientsCount=${recipientList.length}`);
+
+    // Pre-flight: Create individual email_logs and email_events BEFORE calling MSG91
+    const preparedRecipients = [];
+    for (const r of recipientList) {
+      const crqid = `CRM_LOG_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+      const varsJson = JSON.stringify(r.variables || {});
+
+      const [insertRes] = await db.query(
+        `INSERT INTO email_logs 
+         (crqid, recipient_email, recipient_name, user_id, template_id, msg91_template_id, subject, variables, status, sent_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'QUEUED', ?, NOW())`,
+        [crqid, r.email, r.name || null, r.user_id || null, targetCrmTemplateId || null, msg91TemplateId || null, mailSubject, varsJson, senderId || null]
+      );
+
+      const logId = insertRes.insertId;
+
+      await db.query(
+        `INSERT INTO email_events (email_log_id, provider, event_name, event_status, event_timestamp, recipient, crqid)
+         VALUES (?, 'MSG91', 'QUEUED', 'QUEUED', NOW(), ?, ?)`,
+        [logId, r.email, crqid]
+      );
+
+      preparedRecipients.push({
+        ...r,
+        logId,
+        crqid
+      });
+    }
 
     if (activeProvider.name === 'msg91' || activeProvider.provider === 'msg91') {
-      const formattedRecipients = recipientList.map(r => ({
+      const formattedRecipients = preparedRecipients.map(r => ({
         to: [
           {
             name: r.name || r.email.split('@')[0],
             email: r.email
           }
         ],
+        crqid: r.crqid,
         variables: {
           name: r.name || '',
           email: r.email,
@@ -663,29 +692,32 @@ class MailService {
 
       try {
         const sendResult = await msg91Provider.sendMail(msg91Payload);
+        const msgId = sendResult.messageId || null;
+        const requestId = sendResult.raw?.request_id || sendResult.raw?.requestId || null;
 
-        // Record email delivery logs with 'sent' status on success
-        for (const r of recipientList) {
+        for (const r of preparedRecipients) {
           await db.query(
-            `INSERT INTO email_logs (crqid, msg_id, recipient_email, recipient_name, user_id, template_id, subject, status, sent_by)
-             VALUES (?, ?, ?, ?, ?, ?, ?, 'sent', ?)`,
-            [`CRM_MSG91_${Date.now()}_${r.user_id || r.email}`, sendResult.messageId, r.email, r.name, r.user_id, targetCrmTemplateId, mailSubject, senderId]
+            `UPDATE email_logs SET msg_id = ?, request_id = ?, status = 'QUEUED' WHERE id = ?`,
+            [msgId, requestId, r.logId]
           );
         }
 
         return {
           success: true,
           crmTemplateId: targetCrmTemplateId || null,
-          totalRecipients: recipientList.length,
-          message: `Successfully dispatched email to ${recipientList.length} recipient(s) via MSG91.`
+          totalRecipients: preparedRecipients.length,
+          message: `Successfully dispatched email to ${preparedRecipients.length} recipient(s) via MSG91.`
         };
       } catch (sendErr) {
-        // Record email delivery logs with 'failed' status on MSG91 API error
-        for (const r of recipientList) {
+        for (const r of preparedRecipients) {
           await db.query(
-            `INSERT INTO email_logs (crqid, recipient_email, recipient_name, user_id, template_id, subject, status, error_message, sent_by)
-             VALUES (?, ?, ?, ?, ?, ?, 'failed', ?, ?)`,
-            [`CRM_MSG91_FAIL_${Date.now()}_${r.user_id || r.email}`, r.email, r.name, r.user_id, targetCrmTemplateId, mailSubject, sendErr.message, senderId]
+            `UPDATE email_logs SET status = 'FAILED', failed_at = NOW(), failure_reason = ? WHERE id = ?`,
+            [sendErr.message, r.logId]
+          );
+          await db.query(
+            `INSERT INTO email_events (email_log_id, provider, event_name, event_status, event_timestamp, recipient, crqid)
+             VALUES (?, 'MSG91', 'FAILED', 'FAILED', NOW(), ?, ?)`,
+            [r.logId, r.email, r.crqid]
           );
         }
         throw sendErr;
@@ -694,12 +726,14 @@ class MailService {
 
     // Nodemailer / Queue Fallback
     const { emailQueue } = require('../../queues/email.queue');
-    for (const r of recipientList) {
+    for (const r of preparedRecipients) {
       await emailQueue.add('sendEmail', {
         recipient: { email: r.email, name: r.name, user_id: r.user_id, customerObj: r.variables },
         subject: mailSubject,
         bodyHtml: mailHtml,
         templateId: targetCrmTemplateId,
+        crqid: r.crqid,
+        logId: r.logId,
         senderId
       });
     }
@@ -707,8 +741,202 @@ class MailService {
     return {
       success: true,
       crmTemplateId: targetCrmTemplateId || null,
-      totalRecipients: recipientList.length,
-      message: `Queued ${recipientList.length} email job(s) for background processing.`
+      totalRecipients: preparedRecipients.length,
+      message: `Queued ${preparedRecipients.length} email job(s) for background processing.`
+    };
+  }
+
+  // --- NEW API: MSG91 ANALYTICS API (PART 3 & 4) ---
+  async getAnalytics(startDate, endDate) {
+    let msg91Data = null;
+    let providerError = null;
+
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      const diffDays = Math.ceil(Math.abs(end - start) / (1000 * 60 * 60 * 24));
+      if (diffDays <= 31) {
+        try {
+          msg91Data = await msg91Provider.getEmailAnalyticsFromMsg91({ startDate, endDate });
+        } catch (err) {
+          providerError = err.message;
+          console.warn('[MailService] MSG91 Live Analytics fetch warning:', err.message);
+        }
+      }
+    }
+
+    // CRM Internal Database Aggregations for fallback / historical >31 days
+    let dateFilterSql = '';
+    const filterParams = [];
+    if (startDate && endDate) {
+      dateFilterSql = ' WHERE created_at >= ? AND created_at <= ?';
+      filterParams.push(`${startDate} 00:00:00`, `${endDate} 23:59:59`);
+    }
+
+    const [[counts]] = await db.query(
+      `SELECT 
+        COUNT(*) as total_sent,
+        SUM(CASE WHEN LOWER(status) = 'delivered' THEN 1 ELSE 0 END) as total_delivered,
+        SUM(CASE WHEN LOWER(status) = 'opened' THEN 1 ELSE 0 END) as total_opened,
+        SUM(CASE WHEN LOWER(status) = 'clicked' THEN 1 ELSE 0 END) as total_clicked,
+        SUM(CASE WHEN LOWER(status) = 'failed' THEN 1 ELSE 0 END) as total_failed,
+        SUM(CASE WHEN LOWER(status) = 'unsubscribed' THEN 1 ELSE 0 END) as total_unsubscribed,
+        SUM(CASE WHEN LOWER(status) = 'complaint' THEN 1 ELSE 0 END) as total_complaint
+       FROM email_logs${dateFilterSql}`,
+      filterParams
+    );
+
+    const internalAnalytics = {
+      sent: Number(counts?.total_sent || 0),
+      delivered: Number(counts?.total_delivered || 0),
+      opened: Number(counts?.total_opened || 0),
+      clicked: Number(counts?.total_clicked || 0),
+      failed: Number(counts?.total_failed || 0),
+      unsubscribed: Number(counts?.total_unsubscribed || 0),
+      complaints: Number(counts?.total_complaint || 0)
+    };
+
+    return {
+      success: true,
+      provider: 'MSG91',
+      startDate: startDate || null,
+      endDate: endDate || null,
+      analytics: msg91Data || internalAnalytics,
+      internalAnalytics,
+      providerError
+    };
+  }
+
+  // --- NEW API: INTERNAL CRM EMAIL LOGS & JOURNEY (PART 18 & 19) ---
+  async getLogs(params = {}) {
+    const page = Math.max(1, parseInt(params.page || 1, 10));
+    const limit = Math.max(1, Math.min(100, parseInt(params.limit || 20, 10)));
+    const offset = (page - 1) * limit;
+
+    const whereClauses = [];
+    const queryParams = [];
+
+    if (params.search && params.search.trim()) {
+      const term = `%${params.search.trim()}%`;
+      whereClauses.push('(l.recipient_email LIKE ? OR l.recipient_name LIKE ? OR l.subject LIKE ? OR l.crqid LIKE ?)');
+      queryParams.push(term, term, term, term);
+    }
+
+    if (params.status && params.status !== 'all') {
+      whereClauses.push('LOWER(l.status) = LOWER(?)');
+      queryParams.push(params.status.trim());
+    }
+
+    if (params.startDate && params.endDate) {
+      whereClauses.push('l.created_at >= ? AND l.created_at <= ?');
+      queryParams.push(`${params.startDate} 00:00:00`, `${params.endDate} 23:59:59`);
+    }
+
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+    const [[{ total }]] = await db.query(
+      `SELECT COUNT(*) as total FROM email_logs l ${whereSql}`,
+      queryParams
+    );
+
+    const [items] = await db.query(
+      `SELECT l.*, t.name as template_name, s.name as sent_by_name
+       FROM email_logs l
+       LEFT JOIN email_templates t ON l.template_id = t.id
+       LEFT JOIN staff s ON l.sent_by = s.id
+       ${whereSql}
+       ORDER BY l.id DESC
+       LIMIT ? OFFSET ?`,
+      [...queryParams, limit, offset]
+    );
+
+    return {
+      items,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit)
+    };
+  }
+
+  async getLogJourney(logId) {
+    const numericId = parseInt(logId, 10);
+    if (!numericId) {
+      const err = new Error('Invalid email log ID');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const [[log]] = await db.query(
+      `SELECT l.*, t.name as template_name, s.name as sent_by_name
+       FROM email_logs l
+       LEFT JOIN email_templates t ON l.template_id = t.id
+       LEFT JOIN staff s ON l.sent_by = s.id
+       WHERE l.id = ?`,
+      [numericId]
+    );
+
+    if (!log) {
+      const err = new Error(`Email Log #${numericId} not found`);
+      err.statusCode = 404;
+      throw err;
+    }
+
+    const [events] = await db.query(
+      `SELECT * FROM email_events WHERE email_log_id = ? OR (crqid IS NOT NULL AND crqid = ?) ORDER BY event_timestamp ASC, id ASC`,
+      [numericId, log.crqid]
+    );
+
+    return {
+      success: true,
+      log,
+      timeline: events
+    };
+  }
+
+  // --- NEW API: RECONCILE MSG91 LOGS API (PART 20 & 21) ---
+  async reconcileMsg91Logs(fromDate, toDate) {
+    let msg91Logs = [];
+    try {
+      msg91Logs = await msg91Provider.getEmailLogsFromMsg91({ fromDate, toDate });
+    } catch (err) {
+      console.error('[MailService] Reconciliation fetch error:', err.message);
+      throw err;
+    }
+
+    let reconciledCount = 0;
+    const logItems = Array.isArray(msg91Logs) ? msg91Logs : (msg91Logs.logs || []);
+
+    for (const item of logItems) {
+      const crqid = item.crqid || item.crqId || null;
+      const recipient = item.email || item.recipient || item.to || null;
+      const status = item.status || item.event || null;
+
+      if (!status) continue;
+
+      let [[log]] = crqid ? await db.query('SELECT * FROM email_logs WHERE crqid = ?', [crqid]) : [[]];
+      if (!log && recipient) {
+        [[log]] = await db.query('SELECT * FROM email_logs WHERE LOWER(recipient_email) = LOWER(?) ORDER BY id DESC LIMIT 1', [recipient.trim()]);
+      }
+
+      if (log) {
+        const normalized = status.toUpperCase();
+        if (log.status !== normalized) {
+          await db.query('UPDATE email_logs SET status = ?, last_event = ?, last_event_at = NOW() WHERE id = ?', [normalized, normalized, log.id]);
+          await db.query(
+            `INSERT INTO email_events (email_log_id, provider, event_name, event_status, event_timestamp, recipient, crqid, raw_payload)
+             VALUES (?, 'MSG91', ?, ?, NOW(), ?, ?, ?)`,
+            [log.id, normalized, normalized, recipient, log.crqid, JSON.stringify(item)]
+          );
+          reconciledCount++;
+        }
+      }
+    }
+
+    return {
+      success: true,
+      reconciledCount,
+      totalLogsFetched: logItems.length
     };
   }
 
