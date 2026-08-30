@@ -184,10 +184,10 @@ class UserController {
   }
 
   async bulkValidateEmails(req, res) {
-    const { userIds, ids } = req.body;
+    const { userIds, ids, validateAllUnvalidated } = req.body || {};
     const targetIds = userIds || ids || [];
-    const result = await userService.bulkValidateUserEmails(targetIds);
-    res.json(ApiResponse.success(result, 'Bulk email validation completed'));
+    const result = await userService.bulkValidateUserEmails(targetIds, Boolean(validateAllUnvalidated));
+    res.json(ApiResponse.success(result, result.message || 'Bulk email validation completed'));
   }
 }
 

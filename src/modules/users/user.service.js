@@ -515,18 +515,24 @@ class UserService {
     };
   }
 
-  async bulkValidateUserEmails(userIds) {
-    if (!Array.isArray(userIds) || userIds.length === 0) {
-      return { results: [] };
+  async bulkValidateUserEmails(userIds = [], validateAllUnvalidated = false) {
+    let users = [];
+
+    if (Array.isArray(userIds) && userIds.length > 0) {
+      const [rows] = await db.query(
+        `SELECT id, email FROM users WHERE id IN (?) AND email IS NOT NULL AND email != ''`,
+        [userIds]
+      );
+      users = rows;
+    } else if (validateAllUnvalidated) {
+      const [rows] = await db.query(
+        `SELECT id, email FROM users WHERE email IS NOT NULL AND email != '' AND (email_validation_status IS NULL OR email_validation_status = '' OR email_validation_status = 'unknown') LIMIT 100`
+      );
+      users = rows;
     }
 
-    const [users] = await db.query(
-      `SELECT id, email FROM users WHERE id IN (?) AND email IS NOT NULL AND email != ''`,
-      [userIds]
-    );
-
     if (users.length === 0) {
-      return { results: [] };
+      return { totalValidated: 0, results: [], message: 'No unvalidated email addresses found.' };
     }
 
     const emails = users.map(u => u.email);
@@ -550,7 +556,8 @@ class UserService {
 
     return {
       totalValidated: users.length,
-      results: valRes.results || []
+      results: valRes.results || [],
+      message: `Bulk validated ${users.length} customer email(s) via MSG91.`
     };
   }
 }
