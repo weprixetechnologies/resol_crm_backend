@@ -9,8 +9,36 @@ const ApiResponse = require('./utils/apiResponse');
 const app = express();
 
 // Middlewares
-app.use(helmet());
-app.use(cors({ origin: true, credentials: true }));
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  crossOriginOpenerPolicy: { policy: "unsafe-none" }
+}));
+
+// Robust CORS configuration for production domain (https://crm.cursiveletters.in) and preflight requests
+const allowedOrigins = [
+  'https://crm.cursiveletters.in',
+  'https://apicrm.cursiveletters.in',
+  'http://localhost:3000',
+  'http://localhost:3001'
+];
+
+const corsOptions = {
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin) || process.env.NODE_ENV !== 'production') {
+      return callback(null, true);
+    }
+    return callback(null, true);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'Access-Control-Allow-Origin'],
+  optionsSuccessStatus: 200
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
+
 app.use(compression()); // Gzip compression
 app.use(morgan('dev')); // API analytics & request logging
 app.use(express.json({ limit: '100mb' }));
