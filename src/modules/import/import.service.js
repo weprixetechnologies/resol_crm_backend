@@ -28,7 +28,7 @@ class ImportService {
         else if (['designation', 'role', 'title'].includes(normalized)) headerMap.designation = colIdx;
         else if (['institute', 'company', 'organization'].includes(normalized)) headerMap.institute = colIdx;
         else if (['department', 'dept'].includes(normalized)) headerMap.department = colIdx;
-        else if (['country', 'countryname', 'region', 'regiontype'].includes(normalized)) headerMap.country = colIdx;
+        else if (['country', 'countryname', 'region', 'regiontype', 'countryregion', 'nation', 'nationality'].includes(normalized)) headerMap.country = colIdx;
         else if (['status', 'customerstatus', 'userstatus'].includes(normalized)) headerMap.status = colIdx;
         else if (['tag1', 'tag 1', 'tag_1'].includes(normalized)) headerMap.tag1 = colIdx;
         else if (['tag2', 'tag 2', 'tag_2'].includes(normalized)) headerMap.tag2 = colIdx;
