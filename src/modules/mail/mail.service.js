@@ -984,16 +984,45 @@ class MailService {
       queryParams
     );
 
-    const [items] = await db.query(
-      `SELECT l.*, t.name as template_name, s.name as sent_by_name
+    const [rawItems] = await db.query(
+      `SELECT l.*, t.name as template_name, s.name as sent_by_name,
+              u.id as crm_user_id, u.is_deletion_requested as user_is_deletion_requested, u.deletion_reason as user_deletion_reason,
+              au.id as archived_user_id
        FROM email_logs l
        LEFT JOIN email_templates t ON l.template_id = t.id
        LEFT JOIN staff s ON l.sent_by = s.id
+       LEFT JOIN users u ON (l.user_id = u.id OR LOWER(l.recipient_email) = LOWER(u.email))
+       LEFT JOIN archived_users au ON (LOWER(l.recipient_email) = LOWER(au.email))
        ${whereSql}
        ORDER BY l.id DESC
        LIMIT ? OFFSET ?`,
       [...queryParams, limit, offset]
     );
+
+    const items = rawItems.map(item => {
+      let deletionFlag = 'NONE';
+      let deletionLabel = '';
+
+      if (item.user_is_deletion_requested === 1) {
+        deletionFlag = 'PENDING_DELETE';
+        deletionLabel = 'Pending Delete';
+      } else if (item.archived_user_id) {
+        deletionFlag = 'CONTACT_DELETED';
+        deletionLabel = 'Contact Deleted';
+      } else if (item.crm_user_id) {
+        deletionFlag = 'ACTIVE';
+        deletionLabel = 'Active Contact';
+      } else {
+        deletionFlag = 'NO_CONTACT';
+        deletionLabel = 'No Contact Record';
+      }
+
+      return {
+        ...item,
+        deletion_flag: deletionFlag,
+        deletion_label: deletionLabel
+      };
+    });
 
     return {
       items,

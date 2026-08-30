@@ -17,7 +17,10 @@ async function migrate() {
 
     await safeAddColumn(`ALTER TABLE users ADD COLUMN is_admin_verified TINYINT(1) NOT NULL DEFAULT 0;`);
     await safeAddColumn(`ALTER TABLE users ADD COLUMN is_deletion_requested TINYINT(1) NOT NULL DEFAULT 0;`);
-    await safeAddColumn(`ALTER TABLE users ADD COLUMN deletion_reason VARCHAR(255) NULL;`);
+    // Email Validation fields
+    await safeAddColumn(`ALTER TABLE users ADD COLUMN email_validation_status VARCHAR(50) NULL;`);
+    await safeAddColumn(`ALTER TABLE users ADD COLUMN email_validation_reason VARCHAR(255) NULL;`);
+    await safeAddColumn(`ALTER TABLE users ADD COLUMN email_validated_at DATETIME NULL;`);
 
     // New fields: status, tag1, tag2
     await safeAddColumn(`ALTER TABLE users ADD COLUMN status ENUM('active','unverified') NOT NULL DEFAULT 'active';`);

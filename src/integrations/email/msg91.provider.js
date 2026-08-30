@@ -836,8 +836,57 @@ class Msg91Provider extends EmailProvider {
 
     const totalCount = resJson.metadata?.total || items.length;
 
+    const recipientEmails = [...new Set(items.map(i => i.recipientEmail).filter(Boolean))];
+    let activeUsersMap = {};
+    let archivedUsersMap = {};
+
+    if (recipientEmails.length > 0) {
+      try {
+        const db = require('../../config/db');
+        const [uRows] = await db.query(
+          `SELECT id, LOWER(email) as email, is_deletion_requested FROM users WHERE LOWER(email) IN (?)`,
+          [recipientEmails.map(e => e.toLowerCase())]
+        );
+        uRows.forEach(u => { activeUsersMap[u.email] = u; });
+
+        const [auRows] = await db.query(
+          `SELECT id, LOWER(email) as email FROM archived_users WHERE LOWER(email) IN (?)`,
+          [recipientEmails.map(e => e.toLowerCase())]
+        );
+        auRows.forEach(au => { archivedUsersMap[au.email] = au; });
+      } catch (err) {
+        // Silently skip if DB query fails
+      }
+    }
+
+    const annotatedItems = items.map(item => {
+      const e = (item.recipientEmail || '').toLowerCase().trim();
+      let flag = 'NONE';
+      let label = '';
+      if (activeUsersMap[e]) {
+        if (activeUsersMap[e].is_deletion_requested === 1) {
+          flag = 'PENDING_DELETE';
+          label = 'Pending Delete';
+        } else {
+          flag = 'ACTIVE';
+          label = 'Active Contact';
+        }
+      } else if (archivedUsersMap[e]) {
+        flag = 'CONTACT_DELETED';
+        label = 'Contact Deleted';
+      } else {
+        flag = 'NO_CONTACT';
+        label = 'No Contact Record';
+      }
+      return {
+        ...item,
+        deletion_flag: flag,
+        deletion_label: label
+      };
+    });
+
     return {
-      items,
+      items: annotatedItems,
       total: totalCount,
       page: parseInt(params.page || 1, 10),
       limit: parseInt(params.limit || 20, 10),
@@ -891,6 +940,83 @@ class Msg91Provider extends EmailProvider {
     }
 
     return resJson.data || resJson.analytics || resJson;
+  }
+
+  /**
+   * Validates one or more email addresses via MSG91 REST API
+   * Endpoint: POST https://control.msg91.com/api/v5/email/validate
+   * Header: accept: application/json, authkey: <KEY>, content-type: application/json
+   * Body: { "email": ["EMAIL1@GMAIL.COM", "EMAIL2@GMAIL.COM"] }
+   */
+  async validateEmails(emails) {
+    const config = await this.getConfig();
+    const authKey = (config.authKey || '').trim();
+    if (!authKey) {
+      throw new Error('MSG91 Auth Key is not configured in system settings');
+    }
+
+    const emailList = Array.isArray(emails) ? emails.filter(Boolean) : [emails].filter(Boolean);
+    if (emailList.length === 0) {
+      throw new Error('No email addresses provided for validation');
+    }
+
+    const url = 'https://control.msg91.com/api/v5/email/validate';
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'accept': 'application/json',
+        'authkey': authKey,
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({ email: emailList })
+    });
+
+    const resText = await response.text();
+    let resJson;
+    try { resJson = JSON.parse(resText); } catch { resJson = { raw: resText }; }
+
+    if (!response.ok || resJson.hasError || resJson.status === 'error') {
+      const errMsg = resJson.message || resJson.errors || `MSG91 Email Validation Failed (HTTP ${response.status})`;
+      throw new Error(typeof errMsg === 'object' ? JSON.stringify(errMsg) : errMsg);
+    }
+
+    const dataObj = resJson.data || {};
+    const results = [];
+
+    if (Array.isArray(dataObj)) {
+      dataObj.forEach(item => {
+        const res = item.result || {};
+        results.push({
+          email: item.email,
+          valid: Boolean(res.valid),
+          resultStatus: res.result || 'unknown',
+          reason: res.reason || null,
+          isDisposable: Boolean(res.is_disposable),
+          isFree: Boolean(res.is_free),
+          isRole: Boolean(res.is_role),
+          raw: item
+        });
+      });
+    } else if (typeof dataObj === 'object' && dataObj.result) {
+      const res = dataObj.result || {};
+      results.push({
+        email: dataObj.email || emailList[0],
+        valid: Boolean(res.valid),
+        resultStatus: res.result || 'unknown',
+        reason: res.reason || null,
+        isDisposable: Boolean(res.is_disposable),
+        isFree: Boolean(res.is_free),
+        isRole: Boolean(res.is_role),
+        raw: dataObj
+      });
+    }
+
+    return {
+      success: true,
+      results,
+      summary: dataObj.summary || { total: results.length },
+      rawResponse: resJson
+    };
   }
 }
 

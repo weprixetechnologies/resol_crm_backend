@@ -499,6 +499,71 @@ class UserService {
       events
     };
   }
+
+  async validateUserEmail(userId) {
+    const user = await this.getUserById(userId);
+    if (!user.email) {
+      const err = new Error('Customer has no email address');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const msg91Provider = require('../../integrations/email/msg91.provider');
+    const valRes = await msg91Provider.validateEmails([user.email]);
+    const itemResult = valRes.results && valRes.results[0] ? valRes.results[0] : null;
+
+    if (itemResult) {
+      await db.query(
+        `UPDATE users SET email_validation_status = ?, email_validation_reason = ?, email_validated_at = NOW() WHERE id = ?`,
+        [itemResult.resultStatus, itemResult.reason, userId]
+      );
+    }
+
+    return {
+      userId,
+      email: user.email,
+      validation: itemResult
+    };
+  }
+
+  async bulkValidateUserEmails(userIds) {
+    if (!Array.isArray(userIds) || userIds.length === 0) {
+      return { results: [] };
+    }
+
+    const [users] = await db.query(
+      `SELECT id, email FROM users WHERE id IN (?) AND email IS NOT NULL AND email != ''`,
+      [userIds]
+    );
+
+    if (users.length === 0) {
+      return { results: [] };
+    }
+
+    const emails = users.map(u => u.email);
+    const msg91Provider = require('../../integrations/email/msg91.provider');
+    const valRes = await msg91Provider.validateEmails(emails);
+
+    const emailToResultMap = {};
+    (valRes.results || []).forEach(r => {
+      if (r.email) emailToResultMap[r.email.toLowerCase().trim()] = r;
+    });
+
+    for (const u of users) {
+      const match = emailToResultMap[u.email.toLowerCase().trim()];
+      if (match) {
+        await db.query(
+          `UPDATE users SET email_validation_status = ?, email_validation_reason = ?, email_validated_at = NOW() WHERE id = ?`,
+          [match.resultStatus, match.reason, u.id]
+        );
+      }
+    }
+
+    return {
+      totalValidated: users.length,
+      results: valRes.results || []
+    };
+  }
 }
 
 module.exports = new UserService();

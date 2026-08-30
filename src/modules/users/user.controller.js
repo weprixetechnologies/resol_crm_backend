@@ -177,6 +177,18 @@ class UserController {
     await userService.syncSerialNumbers();
     res.json(ApiResponse.success(null, 'Serial numbers re-synced successfully'));
   }
+
+  async validateEmail(req, res) {
+    const result = await userService.validateUserEmail(req.params.id);
+    res.json(ApiResponse.success(result, 'Email validation completed'));
+  }
+
+  async bulkValidateEmails(req, res) {
+    const { userIds, ids } = req.body;
+    const targetIds = userIds || ids || [];
+    const result = await userService.bulkValidateUserEmails(targetIds);
+    res.json(ApiResponse.success(result, 'Bulk email validation completed'));
+  }
 }
 
 module.exports = new UserController();

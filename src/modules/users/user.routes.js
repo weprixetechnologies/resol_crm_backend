@@ -26,6 +26,10 @@ router.post('/:id/remarks', asyncHandler(userController.addRemark));
 // Sync serial numbers
 router.post('/sync-serial', requireRole(['admin']), asyncHandler(userController.syncSerialNumbers));
 
+// MSG91 Email Validation
+router.post('/bulk-validate-email', asyncHandler(userController.bulkValidateEmails));
+router.post('/:id/validate-email', asyncHandler(userController.validateEmail));
+
 // Email Activity History
 router.get('/:id/email-activity', asyncHandler(userController.getEmailActivity));
 
