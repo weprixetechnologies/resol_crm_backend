@@ -239,10 +239,10 @@ class Msg91Provider extends EmailProvider {
     }
 
     let msg91TemplateId = options.msg91_template_id || options.msg91TemplateId || options.templateId || options.template_id || config.defaultTemplateId || '';
-    if (typeof msg91TemplateId === 'number' || (typeof msg91TemplateId === 'string' && /^\d+$/.test(String(msg91TemplateId).trim()))) {
-      msg91TemplateId = ''; // Ignore internal numeric CRM database template ID
-    } else if (typeof msg91TemplateId === 'string') {
-      msg91TemplateId = msg91TemplateId.trim();
+    if (msg91TemplateId !== undefined && msg91TemplateId !== null && msg91TemplateId !== '') {
+      msg91TemplateId = String(msg91TemplateId).trim();
+    } else {
+      msg91TemplateId = '';
     }
 
     if (!msg91TemplateId) {
@@ -260,13 +260,10 @@ class Msg91Provider extends EmailProvider {
 
     if (msg91TemplateId && msg91TemplateId.length > 0) {
       payload.template_id = msg91TemplateId;
-      delete recipients[0].variables.body;
-      delete recipients[0].variables.html;
-      delete recipients[0].variables.text;
     } else {
       payload.body = {
         type: 'text/html',
-        data: html || text || ''
+        data: html || text || '<p>Notification</p>'
       };
       if (subject) {
         payload.subject = subject;
@@ -397,10 +394,10 @@ class Msg91Provider extends EmailProvider {
       };
 
       let msg91TemplateId = campaign.msg91_template_id || campaign.msg91TemplateId || campaign.templateId || campaign.template_id || config.defaultTemplateId || '';
-      if (typeof msg91TemplateId === 'number' || (typeof msg91TemplateId === 'string' && /^\d+$/.test(String(msg91TemplateId).trim()))) {
-        msg91TemplateId = ''; // Ignore internal numeric CRM database template ID
-      } else if (typeof msg91TemplateId === 'string') {
-        msg91TemplateId = msg91TemplateId.trim();
+      if (msg91TemplateId !== undefined && msg91TemplateId !== null && msg91TemplateId !== '') {
+        msg91TemplateId = String(msg91TemplateId).trim();
+      } else {
+        msg91TemplateId = '';
       }
 
       if (!msg91TemplateId) {
@@ -418,15 +415,10 @@ class Msg91Provider extends EmailProvider {
 
       if (msg91TemplateId && msg91TemplateId.length > 0) {
         payload.template_id = msg91TemplateId;
-        batchRecipients.forEach(r => {
-          delete r.variables.body;
-          delete r.variables.html;
-          delete r.variables.text;
-        });
       } else {
         payload.body = {
           type: 'text/html',
-          data: bodyHtml || ''
+          data: bodyHtml || subject || '<p>Notification</p>'
         };
         if (subject) {
           payload.subject = subject;
