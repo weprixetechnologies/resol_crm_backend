@@ -89,7 +89,7 @@ class UserService {
 
     const [result] = await db.query(
       `INSERT INTO users (sl_no, name, designation, department, institute, city, state, country, region_type, country_code, email, email_normalized, mobile, mobile_normalized, status, tag1, tag2, source, created_by, remarks)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [nextSl, name, designation, department, institute, city, state, countryVal, countryVal, country_code, email, emailNorm, mobile, mobileNorm, userStatus, tag1Val, tag2Val, source, creatorId, remarks || null]
     );
 

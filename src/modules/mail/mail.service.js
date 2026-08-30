@@ -473,8 +473,8 @@ class MailService {
     try {
       return await msg91Provider.getEmailAnalyticsFromMsg91(params);
     } catch (err) {
-      console.error('[MailService] Error fetching MSG91 analytics:', err.message);
-      return { error: err.message };
+      console.warn('[MailService] MSG91 analytics notice:', err.message);
+      return { success: false, message: err.message, data: [] };
     }
   }
 
