@@ -193,6 +193,7 @@ class MailService {
 
     // Step 4: Process MSG91 creation response & save relationship
     const { msg91_template_id, msg91_version_id, msg91_status_id, status } = msg91Res;
+    const templateSlug = msg91Res.msg91_slug || slugName || String(msg91_template_id);
 
     try {
       await db.query(
@@ -200,17 +201,18 @@ class MailService {
          (crm_template_id, provider, msg91_template_id, msg91_version_id, msg91_status_id, provider_status, last_synced_at)
          VALUES (?, 'MSG91', ?, ?, ?, ?, NOW())
          ON DUPLICATE KEY UPDATE 
+           msg91_template_id = VALUES(msg91_template_id),
            msg91_version_id = VALUES(msg91_version_id),
            msg91_status_id = VALUES(msg91_status_id),
            provider_status = VALUES(provider_status),
            last_synced_at = NOW()`,
-        [crmTemplateId, String(msg91_template_id), msg91_version_id ? String(msg91_version_id) : null, msg91_status_id, status]
+        [crmTemplateId, templateSlug, msg91_version_id ? String(msg91_version_id) : null, msg91_status_id, status]
       );
 
       // Flag as uploaded so it is never uploaded again
       await db.query(
         `UPDATE email_templates SET is_uploaded = 1, status = ?, msg91_template_id = ?, msg91_slug = ? WHERE id = ?`,
-        [status, String(msg91_template_id), msg91Res.msg91_slug || slugName, crmTemplateId]
+        [status, templateSlug, templateSlug, crmTemplateId]
       );
     } catch (dbErr) {
       // Case C: MSG91 creates template but database mapping fails
@@ -390,29 +392,30 @@ class MailService {
       targetVersion = matchedTemplate;
     }
 
-    // Step 6: Map status
+    // Step 6: Map status & resolved MSG91 slug
     const statusId = targetVersion?.status_id !== undefined && targetVersion?.status_id !== null ? Number(targetVersion.status_id) : (integration?.msg91_status_id ?? null);
     const mappedStatus = msg91Provider.getTemplateStatus(statusId);
+    const resolvedSlug = targetVersion?.slug || matchedTemplate?.slug || tpl.slug || tpl.msg91_slug || String(msg91TemplateId);
 
-    // Step 7: Update database
+    // Step 7: Update database with resolved MSG91 slug as msg91_template_id
     if (integration) {
       await db.query(
         `UPDATE email_template_integrations 
-         SET msg91_status_id = ?, provider_status = ?, last_synced_at = NOW() 
+         SET msg91_template_id = ?, msg91_status_id = ?, provider_status = ?, last_synced_at = NOW() 
          WHERE id = ?`,
-        [statusId, mappedStatus, integration.id]
+        [resolvedSlug, statusId, mappedStatus, integration.id]
       );
     } else {
       await db.query(
         `INSERT INTO email_template_integrations 
          (crm_template_id, provider, msg91_template_id, msg91_version_id, msg91_status_id, provider_status, last_synced_at)
          VALUES (?, 'MSG91', ?, ?, ?, ?, NOW())
-         ON DUPLICATE KEY UPDATE msg91_status_id = VALUES(msg91_status_id), provider_status = VALUES(provider_status), last_synced_at = NOW()`,
-        [numericId, String(msg91TemplateId), msg91VersionId ? String(msg91VersionId) : null, statusId, mappedStatus]
+         ON DUPLICATE KEY UPDATE msg91_template_id = VALUES(msg91_template_id), msg91_status_id = VALUES(msg91_status_id), provider_status = VALUES(provider_status), last_synced_at = NOW()`,
+        [numericId, resolvedSlug, msg91VersionId ? String(msg91VersionId) : null, statusId, mappedStatus]
       );
     }
 
-    await db.query(`UPDATE email_templates SET status = ? WHERE id = ?`, [mappedStatus, numericId]);
+    await db.query(`UPDATE email_templates SET status = ?, msg91_template_id = ?, msg91_slug = ? WHERE id = ?`, [mappedStatus, resolvedSlug, resolvedSlug, numericId]);
 
     const canSend = (mappedStatus === 'APPROVED');
     const responsePayload = {
@@ -421,6 +424,11 @@ class MailService {
       status: mappedStatus,
       canSend
     };
+
+    // Rule 7: Surfacing MSG91 template slug ONLY if approved!
+    if (mappedStatus === 'APPROVED') {
+      responsePayload.msg91TemplateId = resolvedSlug;
+    }
 
     // Rule 7: Very Important Frontend Response Rule
     if (mappedStatus === 'APPROVED') {
