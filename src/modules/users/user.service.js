@@ -515,7 +515,7 @@ class UserService {
     };
   }
 
-  async bulkValidateUserEmails(userIds = [], validateAllUnvalidated = false) {
+  async bulkValidateUserEmails(userIds = [], validateAllUnvalidated = false, mode = 'do_now') {
     let users = [];
 
     if (Array.isArray(userIds) && userIds.length > 0) {
@@ -535,28 +535,53 @@ class UserService {
       return { totalValidated: 0, results: [], message: 'No unvalidated email addresses found.' };
     }
 
-    const emails = users.map(u => u.email);
-    const msg91Provider = require('../../integrations/email/msg91.provider');
-    const valRes = await msg91Provider.validateEmails(emails);
+    if (mode === 'background') {
+      setImmediate(async () => {
+        const msg91Provider = require('../../integrations/email/msg91.provider');
+        for (const u of users) {
+          try {
+            const itemResult = await msg91Provider.validateSingleEmail(u.email);
+            if (itemResult) {
+              await db.query(
+                `UPDATE users SET email_validation_status = ?, email_validation_reason = ?, email_validated_at = NOW() WHERE id = ?`,
+                [itemResult.resultStatus, itemResult.reason, u.id]
+              );
+            }
+          } catch (err) {
+            console.error(`[Background Validation Error] User #${u.id} (${u.email}):`, err.message);
+          }
+        }
+      });
 
-    const emailToResultMap = {};
-    (valRes.results || []).forEach(r => {
-      if (r.email) emailToResultMap[r.email.toLowerCase().trim()] = r;
-    });
+      return {
+        isBackground: true,
+        totalValidated: users.length,
+        message: `Validation queued! ${users.length} customer email(s) will be validated in the background soon.`
+      };
+    }
+
+    const msg91Provider = require('../../integrations/email/msg91.provider');
+    const results = [];
 
     for (const u of users) {
-      const match = emailToResultMap[u.email.toLowerCase().trim()];
-      if (match) {
-        await db.query(
-          `UPDATE users SET email_validation_status = ?, email_validation_reason = ?, email_validated_at = NOW() WHERE id = ?`,
-          [match.resultStatus, match.reason, u.id]
-        );
+      try {
+        const itemResult = await msg91Provider.validateSingleEmail(u.email);
+        if (itemResult) {
+          await db.query(
+            `UPDATE users SET email_validation_status = ?, email_validation_reason = ?, email_validated_at = NOW() WHERE id = ?`,
+            [itemResult.resultStatus, itemResult.reason, u.id]
+          );
+          results.push(itemResult);
+        }
+      } catch (err) {
+        results.push({ email: u.email, valid: false, resultStatus: 'unknown', reason: err.message });
       }
     }
 
     return {
+      isBackground: false,
       totalValidated: users.length,
-      results: valRes.results || [],
+      results,
       message: `Bulk validated ${users.length} customer email(s) via MSG91.`
     };
   }

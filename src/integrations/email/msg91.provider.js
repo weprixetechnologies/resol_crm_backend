@@ -943,21 +943,34 @@ class Msg91Provider extends EmailProvider {
   }
 
   /**
-   * Validates one or more email addresses via MSG91 REST API
+   * Validates a single email address via MSG91 REST API
    * Endpoint: POST https://control.msg91.com/api/v5/email/validate
    * Header: accept: application/json, authkey: <KEY>, content-type: application/json
-   * Body: { "email": ["EMAIL1@GMAIL.COM", "EMAIL2@GMAIL.COM"] }
+   * Body: { "email": "OLSGGHIUH35LKN35@GMAIL.COM" } (Must be a STRING, 1 email at a time)
    */
-  async validateEmails(emails) {
+  async validateSingleEmail(email) {
     const config = await this.getConfig();
     const authKey = (config.authKey || '').trim();
     if (!authKey) {
       throw new Error('MSG91 Auth Key is not configured in system settings');
     }
 
-    const emailList = Array.isArray(emails) ? emails.filter(Boolean) : [emails].filter(Boolean);
-    if (emailList.length === 0) {
-      throw new Error('No email addresses provided for validation');
+    const emailStr = String(email || '').trim().toLowerCase();
+    if (!emailStr) {
+      throw new Error('No email address provided for validation');
+    }
+
+    const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!EMAIL_REGEX.test(emailStr)) {
+      return {
+        email: emailStr,
+        valid: false,
+        resultStatus: 'undeliverable',
+        reason: 'INVALID_EMAIL_FORMAT',
+        isDisposable: false,
+        isFree: false,
+        isRole: false
+      };
     }
 
     const url = 'https://control.msg91.com/api/v5/email/validate';
@@ -968,7 +981,7 @@ class Msg91Provider extends EmailProvider {
         'authkey': authKey,
         'content-type': 'application/json'
       },
-      body: JSON.stringify({ email: emailList })
+      body: JSON.stringify({ email: emailStr })
     });
 
     const resText = await response.text();
@@ -977,45 +990,53 @@ class Msg91Provider extends EmailProvider {
 
     if (!response.ok || resJson.hasError || resJson.status === 'error') {
       const errMsg = resJson.message || resJson.errors || `MSG91 Email Validation Failed (HTTP ${response.status})`;
-      throw new Error(typeof errMsg === 'object' ? JSON.stringify(errMsg) : errMsg);
+      return {
+        email: emailStr,
+        valid: false,
+        resultStatus: 'unknown',
+        reason: typeof errMsg === 'object' ? JSON.stringify(errMsg) : errMsg,
+        raw: resJson
+      };
     }
 
     const dataObj = resJson.data || {};
-    const results = [];
+    const res = dataObj.result || {};
 
-    if (Array.isArray(dataObj)) {
-      dataObj.forEach(item => {
-        const res = item.result || {};
-        results.push({
-          email: item.email,
-          valid: Boolean(res.valid),
-          resultStatus: res.result || 'unknown',
-          reason: res.reason || null,
-          isDisposable: Boolean(res.is_disposable),
-          isFree: Boolean(res.is_free),
-          isRole: Boolean(res.is_role),
-          raw: item
-        });
-      });
-    } else if (typeof dataObj === 'object' && dataObj.result) {
-      const res = dataObj.result || {};
-      results.push({
-        email: dataObj.email || emailList[0],
-        valid: Boolean(res.valid),
-        resultStatus: res.result || 'unknown',
-        reason: res.reason || null,
-        isDisposable: Boolean(res.is_disposable),
-        isFree: Boolean(res.is_free),
-        isRole: Boolean(res.is_role),
-        raw: dataObj
-      });
+    return {
+      email: dataObj.email || emailStr,
+      valid: Boolean(res.valid),
+      resultStatus: res.result || 'unknown',
+      reason: res.reason || null,
+      isDisposable: Boolean(res.is_disposable),
+      isFree: Boolean(res.is_free),
+      isRole: Boolean(res.is_role),
+      raw: dataObj
+    };
+  }
+
+  /**
+   * Validates multiple email addresses 1-by-1 in a loop
+   * Calls validateSingleEmail for each email to strictly adhere to MSG91 string-only API payload
+   */
+  async validateEmails(emails) {
+    const rawList = Array.isArray(emails) ? emails : [emails];
+    const cleanedEmails = [...new Set(rawList.filter(Boolean).map(e => String(e).trim().toLowerCase()))];
+
+    const results = [];
+    for (const email of cleanedEmails) {
+      const itemRes = await this.validateSingleEmail(email);
+      results.push(itemRes);
     }
 
     return {
       success: true,
       results,
-      summary: dataObj.summary || { total: results.length },
-      rawResponse: resJson
+      summary: {
+        total: results.length,
+        deliverable: results.filter(r => r.resultStatus === 'deliverable').length,
+        undeliverable: results.filter(r => r.resultStatus === 'undeliverable').length,
+        risky: results.filter(r => r.resultStatus === 'risky').length
+      }
     };
   }
 }
