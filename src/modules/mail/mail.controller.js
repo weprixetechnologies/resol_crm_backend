@@ -159,6 +159,18 @@ class MailController {
       res.status(500).json(ApiResponse.error(err.message));
     }
   }
+
+  async getBounces(req, res) {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    const result = await mailService.getBounces(req.query);
+    res.json(result);
+  }
+
+  async deleteBouncedContact(req, res) {
+    const deleterId = req.user ? req.user.id : null;
+    const result = await mailService.deleteBouncedContact(req.params.id, deleterId);
+    res.json(ApiResponse.success(result, result.message));
+  }
 }
 
 module.exports = new MailController();

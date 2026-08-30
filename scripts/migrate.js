@@ -162,6 +162,42 @@ async function migrate() {
     await safeAddColumn(`ALTER TABLE email_events ADD COLUMN crqid VARCHAR(100) NULL;`);
     await safeAddColumn(`ALTER TABLE email_events ADD COLUMN raw_payload JSON NULL;`);
 
+    // Permanent Internal CRM Email Bounces & Suppression Table (PART 9)
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS email_bounces (
+        id                  BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        email_log_id        BIGINT UNSIGNED NULL,
+        recipient_email     VARCHAR(200) NOT NULL UNIQUE,
+        recipient_name      VARCHAR(200) NULL,
+        crm_contact_id      INT UNSIGNED NULL,
+        crm_template_id     INT UNSIGNED NULL,
+        msg91_template_id   VARCHAR(100) NULL,
+        msg91_version_id    VARCHAR(100) NULL,
+        campaign_id         INT UNSIGNED NULL,
+        crqid               VARCHAR(100) NULL,
+        msg91_request_id    VARCHAR(100) NULL,
+        msg91_uuid          VARCHAR(100) NULL,
+        bounce_type         ENUM('HARD_BOUNCE', 'SOFT_BOUNCE', 'UNKNOWN') NOT NULL DEFAULT 'UNKNOWN',
+        provider_status     VARCHAR(50) NOT NULL DEFAULT 'FAILED',
+        event_name          VARCHAR(100) NULL,
+        status_code         VARCHAR(50) NULL,
+        enhanced_status_code VARCHAR(50) NULL,
+        reason              TEXT NULL,
+        first_bounced_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_bounced_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        bounce_count        INT UNSIGNED NOT NULL DEFAULT 1,
+        is_hard_bounce      TINYINT(1) NOT NULL DEFAULT 0,
+        is_soft_bounce      TINYINT(1) NOT NULL DEFAULT 0,
+        created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_bounces_email (recipient_email),
+        INDEX idx_bounces_type (bounce_type),
+        INDEX idx_bounces_hard (is_hard_bounce),
+        INDEX idx_bounces_contact (crm_contact_id),
+        INDEX idx_bounces_crqid (crqid)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
     // Add MSG91 Template integration columns to email_templates
     await safeAddColumn(`ALTER TABLE email_templates ADD COLUMN msg91_template_id VARCHAR(100) NULL;`);
     await safeAddColumn(`ALTER TABLE email_templates ADD COLUMN msg91_slug VARCHAR(100) NULL;`);

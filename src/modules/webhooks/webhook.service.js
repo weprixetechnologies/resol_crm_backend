@@ -269,8 +269,53 @@ class WebhookService {
         updates.push('last_clicked_at = ?', 'click_count = click_count + 1'); params.push(updateTime);
       } else if (normalizedEvent === 'FAILED') {
         if (!matchedLog.failed_at) { updates.push('failed_at = ?'); params.push(updateTime); }
-        updates.push('failure_reason = ?', 'failure_category = ?', 'status_code = ?', 'enhanced_status_code = ?');
-        params.push(reason, failureCategory, statusCode, enhancedStatusCode);
+        const { bounceType, isHardBounce, isSoftBounce } = this.classifyBounce(reason, statusCode, enhancedStatusCode, failureCategory);
+        updates.push('failure_reason = ?', 'failure_category = ?', 'status_code = ?', 'enhanced_status_code = ?', 'bounce_type = ?', 'is_hard_bounce = ?');
+        params.push(reason, failureCategory, statusCode, enhancedStatusCode, bounceType, isHardBounce);
+
+        // Upsert into email_bounces table (PART 9, 10, 16)
+        const targetEmail = (recipient || matchedLog?.recipient_email || '').trim().toLowerCase();
+        if (targetEmail) {
+          try {
+            await db.query(
+              `INSERT INTO email_bounces
+               (email_log_id, recipient_email, recipient_name, crm_contact_id, crm_template_id, msg91_template_id, msg91_version_id, campaign_id, crqid, msg91_request_id, msg91_uuid, bounce_type, provider_status, event_name, status_code, enhanced_status_code, reason, first_bounced_at, last_bounced_at, bounce_count, is_hard_bounce, is_soft_bounce)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'FAILED', 'FAILED', ?, ?, ?, ?, ?, 1, ?, ?)
+               ON DUPLICATE KEY UPDATE
+                 last_bounced_at = VALUES(last_bounced_at),
+                 bounce_count = bounce_count + 1,
+                 bounce_type = VALUES(bounce_type),
+                 reason = VALUES(reason),
+                 status_code = VALUES(status_code),
+                 is_hard_bounce = VALUES(is_hard_bounce),
+                 is_soft_bounce = VALUES(is_soft_bounce),
+                 email_log_id = VALUES(email_log_id)`,
+              [
+                matchedLog.id,
+                targetEmail,
+                matchedLog.recipient_name || targetEmail.split('@')[0],
+                matchedLog.user_id || null,
+                matchedLog.template_id || null,
+                matchedLog.msg91_template_id || null,
+                matchedLog.msg91_version_id || null,
+                matchedLog.campaign_id || null,
+                crqid || matchedLog.crqid,
+                requestId,
+                uuid,
+                bounceType,
+                statusCode,
+                enhancedStatusCode,
+                reason,
+                updateTime,
+                updateTime,
+                isHardBounce,
+                isSoftBounce
+              ]
+            );
+          } catch (bounceErr) {
+            console.warn('[MSG91 Webhook] email_bounces upsert warning:', bounceErr.message);
+          }
+        }
       } else if (normalizedEvent === 'UNSUBSCRIBED') {
         if (!matchedLog.unsubscribed_at) { updates.push('unsubscribed_at = ?'); params.push(updateTime); }
       } else if (normalizedEvent === 'COMPLAINT') {
@@ -284,17 +329,20 @@ class WebhookService {
 
       // Insert timeline event into email_events table
       try {
+        const emailAddr = recipient || matchedLog?.recipient_email || '';
         await db.query(
           `INSERT INTO email_events 
-           (email_log_id, provider, provider_event_id, event_name, event_status, event_timestamp, recipient, msg91_request_id, msg91_uuid, crqid, raw_payload)
-           VALUES (?, 'MSG91', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (email_log_id, provider, provider_event_id, event_name, event_type, event_status, event_timestamp, recipient, recipient_email, msg91_request_id, msg91_uuid, crqid, raw_payload)
+           VALUES (?, 'MSG91', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             matchedLog.id,
             eventId ? String(eventId) : null,
             normalizedEvent,
             normalizedEvent,
+            normalizedEvent,
             updateTime,
-            recipient || matchedLog.recipient_email,
+            emailAddr,
+            emailAddr,
             requestId,
             uuid,
             crqid || matchedLog.crqid,
@@ -387,6 +435,18 @@ class WebhookService {
 
     console.log(`[MSG91_EMAIL_WEBHOOK_PROCESSED] Successfully processed event=${normalizedEvent} id=${webhookEventId}`);
     return { success: true, processed: true, event: normalizedEvent };
+  }
+
+  classifyBounce(reason, statusCode, enhancedStatusCode, failureCategory) {
+    const combinedStr = `${reason || ''} ${statusCode || ''} ${enhancedStatusCode || ''} ${failureCategory || ''}`.toLowerCase();
+    
+    if (/hard|does not exist|invalid recipient|no such user|5\.1\.1|5\.1\.2|unknown user|address rejected|user unknown|mailbox not found|account disabled|rejected/i.test(combinedStr)) {
+      return { bounceType: 'HARD_BOUNCE', isHardBounce: 1, isSoftBounce: 0 };
+    }
+    if (/soft|mailbox full|quota exceeded|temporarily unavailable|4\.2\.2|4\.1\.1|try again later|connection timeout|rate limit/i.test(combinedStr)) {
+      return { bounceType: 'SOFT_BOUNCE', isHardBounce: 0, isSoftBounce: 1 };
+    }
+    return { bounceType: 'UNKNOWN', isHardBounce: 0, isSoftBounce: 0 };
   }
 }
 

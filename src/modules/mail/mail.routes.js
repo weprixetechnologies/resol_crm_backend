@@ -40,6 +40,10 @@ router.get('/logs/:id', mailController.getLogJourney);
 // Log Reconciliation API (PART 20)
 router.post('/reconcile-logs', requireRole('admin'), mailController.reconcileMsg91Logs);
 
+// Permanent CRM Email Bounces & Suppression API (PART 11 & PART 13)
+router.get('/bounces', mailController.getBounces);
+router.delete('/bounces/:id/contact', requireRole('admin'), mailController.deleteBouncedContact);
+
 // Legacy aliases for backwards compatibility
 router.get('/msg91-logs', requireRole('admin'), mailController.getMsg91Logs);
 router.get('/msg91-analytics', mailController.getAnalytics);

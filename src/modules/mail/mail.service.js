@@ -731,8 +731,34 @@ class MailService {
 
     const activeProvider = await getActiveEmailProvider();
 
+    // Check hard-bounce suppression list from email_bounces table (PART 14 & PART 28)
+    const recipientEmails = recipientList.map(r => r.email.toLowerCase());
+    let suppressedRecipients = [];
+    if (recipientEmails.length > 0) {
+      try {
+        const [bouncedRows] = await db.query(
+          `SELECT recipient_email FROM email_bounces WHERE LOWER(recipient_email) IN (?) AND is_hard_bounce = 1`,
+          [recipientEmails]
+        );
+        const hardBouncedEmails = new Set(bouncedRows.map(b => b.recipient_email.toLowerCase()));
+        if (hardBouncedEmails.size > 0) {
+          suppressedRecipients = recipientList.filter(r => hardBouncedEmails.has(r.email.toLowerCase()));
+          recipientList = recipientList.filter(r => !hardBouncedEmails.has(r.email.toLowerCase()));
+        }
+      } catch (bErr) {
+        console.warn('[MailService] Hard bounce check warning:', bErr.message);
+      }
+    }
+
+    if (recipientList.length === 0) {
+      const err = new Error(`All selected recipient(s) (${suppressedRecipients.length}) are hard-bounced and suppressed from delivery.`);
+      err.statusCode = 400;
+      err.suppressedCount = suppressedRecipients.length;
+      throw err;
+    }
+
     // Log provider communication without authkey
-    console.log(`[MailService] Pre-flight log creation for batch: crmTemplateId=${targetCrmTemplateId || 'none'}, msg91TemplateId=${msg91TemplateId || 'none'}, recipientsCount=${recipientList.length}`);
+    console.log(`[MailService] Pre-flight log creation for batch: crmTemplateId=${targetCrmTemplateId || 'none'}, msg91TemplateId=${msg91TemplateId || 'none'}, eligibleCount=${recipientList.length}, suppressedCount=${suppressedRecipients.length}`);
 
     // Pre-flight: Create individual email_logs and email_events BEFORE calling MSG91
     const preparedRecipients = [];
@@ -751,9 +777,9 @@ class MailService {
 
       try {
         await db.query(
-          `INSERT INTO email_events (email_log_id, provider, event_name, event_status, event_timestamp, recipient, crqid)
-           VALUES (?, 'MSG91', 'QUEUED', 'QUEUED', NOW(), ?, ?)`,
-          [logId, r.email, crqid]
+          `INSERT INTO email_events (email_log_id, provider, event_name, event_type, event_status, event_timestamp, recipient, recipient_email, crqid)
+           VALUES (?, 'MSG91', 'QUEUED', 'QUEUED', 'QUEUED', NOW(), ?, ?, ?)`,
+          [logId, r.email, r.email, crqid]
         );
       } catch (evtErr) {
         console.warn('[MailService] email_events insertion warning:', evtErr.message);
@@ -1073,6 +1099,104 @@ class MailService {
       total,
       page,
       totalPages: Math.ceil(total / limit)
+    };
+  }
+
+  // --- BOUNCES & SUPPRESSION (PART 11 & PART 13) ---
+  async getBounces(params = {}) {
+    const page = parseInt(params.page, 10) || 1;
+    const limit = parseInt(params.limit, 10) || 50;
+    const offset = (page - 1) * limit;
+
+    const whereClauses = [];
+    const queryParams = [];
+
+    if (params.search && params.search.trim()) {
+      const term = `%${params.search.trim()}%`;
+      whereClauses.push('(b.recipient_email LIKE ? OR b.recipient_name LIKE ? OR b.reason LIKE ?)');
+      queryParams.push(term, term, term);
+    }
+
+    if (params.bounceType && params.bounceType.toUpperCase() !== 'ALL') {
+      whereClauses.push('b.bounce_type = ?');
+      queryParams.push(params.bounceType.toUpperCase());
+    }
+
+    if (params.startDate && params.endDate) {
+      whereClauses.push('b.first_bounced_at >= ? AND b.last_bounced_at <= ?');
+      queryParams.push(`${params.startDate} 00:00:00`, `${params.endDate} 23:59:59`);
+    }
+
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+    const [[{ total }]] = await db.query(
+      `SELECT COUNT(*) as total FROM email_bounces b ${whereSql}`,
+      queryParams
+    );
+
+    const [items] = await db.query(
+      `SELECT b.*, u.id as contact_user_id, u.name as contact_user_name, u.lead_status
+       FROM email_bounces b
+       LEFT JOIN users u ON (b.crm_contact_id = u.id OR LOWER(b.recipient_email) = LOWER(u.email))
+       ${whereSql}
+       ORDER BY b.last_bounced_at DESC
+       LIMIT ? OFFSET ?`,
+      [...queryParams, limit, offset]
+    );
+
+    const formatted = items.map(item => ({
+      id: item.id,
+      email: item.recipient_email,
+      name: item.recipient_name || item.contact_user_name || item.recipient_email.split('@')[0],
+      bounceType: item.bounce_type,
+      reason: item.reason || 'Email delivery failed',
+      firstBouncedAt: item.first_bounced_at,
+      lastBouncedAt: item.last_bounced_at,
+      bounceCount: item.bounce_count,
+      isHardBounce: Boolean(item.is_hard_bounce),
+      isSoftBounce: Boolean(item.is_soft_bounce),
+      contactId: item.contact_user_id || item.crm_contact_id || null,
+      contactStatus: item.lead_status || 'Active',
+      canDeleteContact: Boolean(item.contact_user_id || item.crm_contact_id)
+    }));
+
+    return {
+      success: true,
+      data: formatted,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit)
+      }
+    };
+  }
+
+  async deleteBouncedContact(bounceId, deleterId = null) {
+    const [[bounce]] = await db.query(
+      `SELECT b.*, u.id as contact_user_id FROM email_bounces b LEFT JOIN users u ON (b.crm_contact_id = u.id OR LOWER(b.recipient_email) = LOWER(u.email)) WHERE b.id = ?`,
+      [bounceId]
+    );
+
+    if (!bounce) {
+      const err = new Error('Bounce record not found');
+      err.statusCode = 404;
+      throw err;
+    }
+
+    const contactId = bounce.contact_user_id || bounce.crm_contact_id;
+    if (contactId) {
+      // Delete contact using CRM deletion logic (hard delete from users table)
+      await db.query('DELETE FROM users WHERE id = ?', [contactId]);
+    }
+
+    // Retain historical email_bounces and email_events records for audit (PART 13)
+    await db.query('UPDATE email_bounces SET crm_contact_id = NULL WHERE id = ?', [bounceId]);
+
+    return {
+      success: true,
+      message: contactId ? `Contact #${contactId} (${bounce.recipient_email}) deleted successfully. Historical bounce audit record preserved.` : 'Bounce audit record preserved.',
+      deletedContactId: contactId || null
     };
   }
 }
