@@ -937,9 +937,16 @@ class MailService {
   }
 
   // --- NEW API: INTERNAL CRM EMAIL LOGS & JOURNEY (PART 18 & 19) ---
-  async getLogs(params = {}) {
-    const page = Math.max(1, parseInt(params.page || 1, 10));
-    const limit = Math.max(1, Math.min(100, parseInt(params.limit || 20, 10)));
+  async getLogs(params = {}, legacyLimit, legacySearch) {
+    let pObj = {};
+    if (typeof params === 'object' && params !== null) {
+      pObj = params;
+    } else {
+      pObj = { page: params, limit: legacyLimit, search: legacySearch };
+    }
+
+    const page = Math.max(1, parseInt(pObj.page || 1, 10));
+    const limit = Math.max(1, Math.min(100, parseInt(pObj.limit || 20, 10)));
     const offset = (page - 1) * limit;
 
     const whereClauses = [];
@@ -1073,33 +1080,6 @@ class MailService {
   async getQueueStatus() {
     const { getQueueMetrics } = require('../../queues/email.queue');
     return getQueueMetrics();
-  }
-
-  // --- LOGS ---
-  async getLogs(page = 1, limit = 20, search = '') {
-    const offset = (page - 1) * limit;
-    let baseQuery = 'FROM email_logs l LEFT JOIN staff s ON l.sent_by = s.id WHERE 1=1';
-    const params = [];
-
-    if (search) {
-      baseQuery += ' AND (l.recipient_email LIKE ? OR l.recipient_name LIKE ? OR l.subject LIKE ?)';
-      const term = `%${search}%`;
-      params.push(term, term, term);
-    }
-
-    const [rows] = await db.query(
-      `SELECT l.*, s.name as sent_by_name ${baseQuery} ORDER BY l.created_at DESC LIMIT ? OFFSET ?`,
-      [...params, limit, offset]
-    );
-
-    const [[{ total }]] = await db.query(`SELECT COUNT(*) as total ${baseQuery}`, params);
-
-    return {
-      items: rows,
-      total,
-      page,
-      totalPages: Math.ceil(total / limit)
-    };
   }
 
   // --- BOUNCES & SUPPRESSION (PART 11 & PART 13) ---
