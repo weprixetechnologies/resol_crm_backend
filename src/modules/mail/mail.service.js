@@ -560,18 +560,46 @@ class MailService {
     // Build recipient list
     let recipientList = []; // [{ email, name, user_id, variables }]
 
-    if (Array.isArray(recipients) && recipients.length > 0) {
-      recipientList = recipients.map(r => {
-        const e = typeof r === 'string' ? r.trim() : r.email?.trim();
-        const n = typeof r === 'object' ? (r.name || '') : '';
-        return {
-          email: e || '',
-          name: n,
-          user_id: r.user_id || null,
-          variables: r.variables || { name: n, email: e || '' }
-        };
-      }).filter(r => isValidEmail(r.email));
-    } else if (sendToAll) {
+    // Collect all customer IDs from customerIds array, customer_ids, or recipients array
+    const targetCustomerIds = [];
+    const rawCustomerIds = payload.customerIds || payload.customer_ids || customerIds;
+    if (Array.isArray(rawCustomerIds)) {
+      for (const cid of rawCustomerIds) {
+        const num = parseInt(cid, 10);
+        if (num && !targetCustomerIds.includes(num)) targetCustomerIds.push(num);
+      }
+    }
+
+    if (Array.isArray(recipients)) {
+      for (const r of recipients) {
+        if (typeof r === 'number' || (typeof r === 'string' && /^\d+$/.test(r.trim()))) {
+          const num = parseInt(r, 10);
+          if (num && !targetCustomerIds.includes(num)) targetCustomerIds.push(num);
+        } else if (typeof r === 'object' && r !== null) {
+          const num = parseInt(r.user_id || r.id || r.customerId, 10);
+          if (num && !r.email && !targetCustomerIds.includes(num)) {
+            targetCustomerIds.push(num);
+          }
+        }
+      }
+    }
+
+    // Fetch customer details from database for all selected customer IDs
+    const dbCustomerMap = new Map();
+    if (targetCustomerIds.length > 0) {
+      const [customers] = await db.query(
+        `SELECT u.*, s.staff_code as created_by_code
+         FROM users u
+         LEFT JOIN staff s ON u.created_by = s.id
+         WHERE u.id IN (?)`,
+        [targetCustomerIds]
+      );
+      for (const cust of customers) {
+        dbCustomerMap.set(cust.id, cust);
+      }
+    }
+
+    if (sendToAll) {
       const [customers] = await db.query(
         `SELECT u.*, s.staff_code as created_by_code
          FROM users u
@@ -582,24 +610,95 @@ class MailService {
         if (isValidEmail(cust.email)) {
           recipientList.push({
             email: cust.email.trim().toLowerCase(),
-            name: cust.name,
+            name: cust.name || cust.email.split('@')[0],
             user_id: cust.id,
-            variables: { name: cust.name, city: cust.city || '', institute: cust.institute || '', staff_code: cust.created_by_code || '' }
+            variables: {
+              name: cust.name || '',
+              email: cust.email.trim().toLowerCase(),
+              city: cust.city || '',
+              institute: cust.institute || '',
+              department: cust.department || '',
+              designation: cust.designation || '',
+              staff_code: cust.created_by_code || ''
+            }
           });
         }
       }
-    } else if (Array.isArray(customerIds) && customerIds.length > 0) {
-      const [customers] = await db.query(
-        `SELECT u.*, s.staff_code as created_by_code FROM users u LEFT JOIN staff s ON u.created_by = s.id WHERE u.id IN (?)`,
-        [customerIds]
-      );
-      for (const cust of customers) {
-        if (isValidEmail(cust.email)) {
+    } else {
+      // Process recipients array
+      if (Array.isArray(recipients) && recipients.length > 0) {
+        for (const r of recipients) {
+          if (typeof r === 'string') {
+            const trimmed = r.trim();
+            if (/^\d+$/.test(trimmed)) {
+              const cust = dbCustomerMap.get(parseInt(trimmed, 10));
+              if (cust && isValidEmail(cust.email)) {
+                recipientList.push({
+                  email: cust.email.trim().toLowerCase(),
+                  name: cust.name || cust.email.split('@')[0],
+                  user_id: cust.id,
+                  variables: {
+                    name: cust.name || '',
+                    email: cust.email.trim().toLowerCase(),
+                    city: cust.city || '',
+                    institute: cust.institute || '',
+                    department: cust.department || '',
+                    designation: cust.designation || '',
+                    staff_code: cust.created_by_code || ''
+                  }
+                });
+              }
+            } else if (isValidEmail(trimmed)) {
+              recipientList.push({
+                email: trimmed.toLowerCase(),
+                name: trimmed.split('@')[0],
+                user_id: null,
+                variables: { name: trimmed.split('@')[0], email: trimmed.toLowerCase() }
+              });
+            }
+          } else if (typeof r === 'object' && r !== null) {
+            const custId = parseInt(r.user_id || r.id || r.customerId, 10);
+            const cust = custId ? dbCustomerMap.get(custId) : null;
+            const email = (r.email ? r.email.trim() : cust?.email?.trim()) || '';
+            const name = (r.name ? r.name.trim() : cust?.name) || email.split('@')[0] || 'Recipient';
+
+            if (isValidEmail(email)) {
+              recipientList.push({
+                email: email.toLowerCase(),
+                name,
+                user_id: custId || cust?.id || null,
+                variables: {
+                  name,
+                  email: email.toLowerCase(),
+                  city: cust?.city || r.city || '',
+                  institute: cust?.institute || r.institute || '',
+                  department: cust?.department || r.department || '',
+                  designation: cust?.designation || r.designation || '',
+                  staff_code: cust?.created_by_code || r.staff_code || '',
+                  ...(r.variables || {})
+                }
+              });
+            }
+          }
+        }
+      }
+
+      // Add any selected customer IDs not yet in recipientList
+      for (const [cid, cust] of dbCustomerMap.entries()) {
+        if (isValidEmail(cust.email) && !recipientList.some(r => r.user_id === cid || r.email.toLowerCase() === cust.email.toLowerCase())) {
           recipientList.push({
             email: cust.email.trim().toLowerCase(),
-            name: cust.name,
+            name: cust.name || cust.email.split('@')[0],
             user_id: cust.id,
-            variables: { name: cust.name, city: cust.city || '', institute: cust.institute || '', staff_code: cust.created_by_code || '' }
+            variables: {
+              name: cust.name || '',
+              email: cust.email.trim().toLowerCase(),
+              city: cust.city || '',
+              institute: cust.institute || '',
+              department: cust.department || '',
+              designation: cust.designation || '',
+              staff_code: cust.created_by_code || ''
+            }
           });
         }
       }
@@ -612,16 +711,16 @@ class MailService {
         if (isValidEmail(email) && !recipientList.some(r => r.email.toLowerCase() === email.toLowerCase())) {
           recipientList.push({
             email: email.trim().toLowerCase(),
-            name: name || email,
+            name: name || email.split('@')[0],
             user_id: null,
-            variables: { name: name || email, email }
+            variables: { name: name || email.split('@')[0], email: email.trim().toLowerCase() }
           });
         }
       }
     }
 
     if (recipientList.length === 0) {
-      const err = new Error('No valid recipient email addresses provided (Check email format e.g. user@example.com)');
+      const err = new Error('No valid recipient email addresses found for the selected customer(s).');
       err.statusCode = 400;
       throw err;
     }
