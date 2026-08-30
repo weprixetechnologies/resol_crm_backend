@@ -120,8 +120,8 @@ class UserService {
   }
 
   async getUsers(page = 1, limit = 20, requesterRole = 'staff', requesterId = null, filters = {}) {
-    const fromSNo = parseInt(filters.fromSNo);
-    const toSNo = parseInt(filters.toSNo);
+    const fromSNo = filters.fromSNo ? parseInt(filters.fromSNo, 10) : null;
+    const toSNo = filters.toSNo ? parseInt(filters.toSNo, 10) : null;
 
     let offset = (page - 1) * limit;
     let queryLimit = limit;
@@ -135,17 +135,6 @@ class UserService {
       const [settingRows] = await db.query("SELECT setting_value FROM system_settings WHERE setting_key = 'serial_sync_pending' LIMIT 1");
       if (settingRows.length > 0 && (settingRows[0].setting_value === 'true' || settingRows[0].setting_value === true)) {
         isSyncPending = true;
-      }
-    }
-
-    if (fromSNo && fromSNo > 0) {
-      const startOffset = fromSNo - 1;
-      offset = startOffset + (page - 1) * limit;
-
-      if (toSNo && toSNo >= fromSNo) {
-        const maxCountInRange = toSNo - fromSNo + 1;
-        const remainingInRange = Math.max(0, maxCountInRange - (page - 1) * limit);
-        queryLimit = Math.min(limit, remainingInRange);
       }
     }
 
@@ -175,12 +164,12 @@ class UserService {
     }
 
     // Apply Serial Range (sl_no)
-    if (fromSNo && fromSNo > 0) {
-      baseQuery += ' AND u.sl_no >= ?';
+    if (fromSNo && !isNaN(fromSNo) && fromSNo > 0) {
+      baseQuery += ' AND COALESCE(u.sl_no, u.id) >= ?';
       params.push(fromSNo);
     }
-    if (toSNo && toSNo > 0) {
-      baseQuery += ' AND u.sl_no <= ?';
+    if (toSNo && !isNaN(toSNo) && toSNo > 0) {
+      baseQuery += ' AND COALESCE(u.sl_no, u.id) <= ?';
       params.push(toSNo);
     }
 
@@ -262,15 +251,15 @@ class UserService {
       params.push(term, term, term, term, term, term, term, term, term, term, term, term, term, term);
     }
 
-    const fromSNo = parseInt(filters.fromSNo);
-    const toSNo = parseInt(filters.toSNo);
+    const fromSNo = filters.fromSNo ? parseInt(filters.fromSNo, 10) : null;
+    const toSNo = filters.toSNo ? parseInt(filters.toSNo, 10) : null;
 
-    if (fromSNo && fromSNo > 0) {
-      baseQuery += ' AND u.sl_no >= ?';
+    if (fromSNo && !isNaN(fromSNo) && fromSNo > 0) {
+      baseQuery += ' AND COALESCE(u.sl_no, u.id) >= ?';
       params.push(fromSNo);
     }
-    if (toSNo && toSNo > 0) {
-      baseQuery += ' AND u.sl_no <= ?';
+    if (toSNo && !isNaN(toSNo) && toSNo > 0) {
+      baseQuery += ' AND COALESCE(u.sl_no, u.id) <= ?';
       params.push(toSNo);
     }
 
