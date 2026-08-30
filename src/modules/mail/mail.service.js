@@ -650,11 +650,15 @@ class MailService {
 
       const logId = insertRes.insertId;
 
-      await db.query(
-        `INSERT INTO email_events (email_log_id, provider, event_name, event_status, event_timestamp, recipient, crqid)
-         VALUES (?, 'MSG91', 'QUEUED', 'QUEUED', NOW(), ?, ?)`,
-        [logId, r.email, crqid]
-      );
+      try {
+        await db.query(
+          `INSERT INTO email_events (email_log_id, provider, event_name, event_status, event_timestamp, recipient, crqid)
+           VALUES (?, 'MSG91', 'QUEUED', 'QUEUED', NOW(), ?, ?)`,
+          [logId, r.email, crqid]
+        );
+      } catch (evtErr) {
+        console.warn('[MailService] email_events insertion warning:', evtErr.message);
+      }
 
       preparedRecipients.push({
         ...r,

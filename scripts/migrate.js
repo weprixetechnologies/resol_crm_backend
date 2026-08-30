@@ -149,10 +149,18 @@ async function migrate() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
-    // Modify status columns to VARCHAR(50) to support all webhook events (queued, accepted, delivered, opened, clicked, unsubscribed, complaint, failed)
-    await safeAddColumn(`ALTER TABLE email_logs MODIFY COLUMN status VARCHAR(50) NOT NULL DEFAULT 'QUEUED';`);
-    await safeAddColumn(`ALTER TABLE campaign_recipients MODIFY COLUMN status VARCHAR(50) NOT NULL DEFAULT 'pending';`);
-    await safeAddColumn(`ALTER TABLE email_events MODIFY COLUMN event_name VARCHAR(100) NOT NULL;`);
+    // Ensure missing columns are added if email_events table already existed
+    await safeAddColumn(`ALTER TABLE email_events ADD COLUMN email_log_id BIGINT UNSIGNED NULL;`);
+    await safeAddColumn(`ALTER TABLE email_events ADD COLUMN provider VARCHAR(50) NOT NULL DEFAULT 'MSG91';`);
+    await safeAddColumn(`ALTER TABLE email_events ADD COLUMN provider_event_id VARCHAR(100) NULL;`);
+    await safeAddColumn(`ALTER TABLE email_events ADD COLUMN event_name VARCHAR(100) NULL;`);
+    await safeAddColumn(`ALTER TABLE email_events ADD COLUMN event_status VARCHAR(50) NULL;`);
+    await safeAddColumn(`ALTER TABLE email_events ADD COLUMN event_timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP;`);
+    await safeAddColumn(`ALTER TABLE email_events ADD COLUMN recipient VARCHAR(200) NULL;`);
+    await safeAddColumn(`ALTER TABLE email_events ADD COLUMN msg91_request_id VARCHAR(100) NULL;`);
+    await safeAddColumn(`ALTER TABLE email_events ADD COLUMN msg91_uuid VARCHAR(100) NULL;`);
+    await safeAddColumn(`ALTER TABLE email_events ADD COLUMN crqid VARCHAR(100) NULL;`);
+    await safeAddColumn(`ALTER TABLE email_events ADD COLUMN raw_payload JSON NULL;`);
 
     // Add MSG91 Template integration columns to email_templates
     await safeAddColumn(`ALTER TABLE email_templates ADD COLUMN msg91_template_id VARCHAR(100) NULL;`);
