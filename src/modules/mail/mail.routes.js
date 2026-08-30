@@ -17,6 +17,8 @@ router.post('/templates/sync', requireRole('admin'), mailController.syncAllTempl
 router.post('/templates/sync-all-msg91', requireRole('admin'), mailController.syncAllTemplatesToMsg91);
 router.post('/templates/:id/sync-msg91', requireRole('admin'), mailController.syncTemplateToMsg91);
 router.get('/templates/versions/:versionId', requireRole('admin'), mailController.getTemplateVersionDetails);
+router.get('/templates/:crmTemplateId/status', mailController.getTemplateStatus);
+router.get('/templates/:id/status', mailController.getTemplateStatus);
 router.get('/templates/:id', mailController.getTemplateById);
 router.post('/templates', requireRole('admin'), mailController.createTemplate);
 router.put('/templates/:id', requireRole('admin'), mailController.updateTemplate);

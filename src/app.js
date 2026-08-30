@@ -44,6 +44,7 @@ app.use('/api/sessions', sessionRoutes);
 app.use('/api/import', importRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/mail', mailRoutes);
+app.use('/api/email', mailRoutes);
 app.use('/api/campaigns', campaignRoutes);
 app.use('/api/webhooks', webhookRoutes);
 

@@ -27,11 +27,25 @@ const emailWorker = new Worker(
       // Resolve MSG91 template slug/id from DB if internal template ID is passed
       let resolvedTemplateId = templateId;
       if (templateId && (typeof templateId === 'number' || /^\d+$/.test(String(templateId)))) {
-        const [tRows] = await db.query('SELECT msg91_template_id, msg91_slug FROM email_templates WHERE id = ?', [templateId]);
-        if (tRows.length > 0 && (tRows[0].msg91_slug || tRows[0].msg91_template_id)) {
-          resolvedTemplateId = tRows[0].msg91_slug || tRows[0].msg91_template_id;
+        const [intRows] = await db.query(
+          'SELECT msg91_template_id, provider_status FROM email_template_integrations WHERE crm_template_id = ? AND provider = "MSG91"',
+          [templateId]
+        );
+        if (intRows.length > 0) {
+          if (intRows[0].provider_status !== 'APPROVED') {
+            throw new Error(`Email dispatch blocked: CRM Template #${templateId} status is ${intRows[0].provider_status}. Only APPROVED templates can be sent.`);
+          }
+          resolvedTemplateId = intRows[0].msg91_template_id;
         } else {
-          resolvedTemplateId = null; // Omit if not registered in MSG91
+          const [tRows] = await db.query('SELECT msg91_template_id, msg91_slug, status FROM email_templates WHERE id = ?', [templateId]);
+          if (tRows.length > 0) {
+            if (tRows[0].status !== 'APPROVED') {
+              throw new Error(`Email dispatch blocked: CRM Template #${templateId} status is ${tRows[0].status}. Only APPROVED templates can be sent.`);
+            }
+            resolvedTemplateId = tRows[0].msg91_template_id || tRows[0].msg91_slug;
+          } else {
+            resolvedTemplateId = null;
+          }
         }
       }
 

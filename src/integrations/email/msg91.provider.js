@@ -3,15 +3,25 @@ const settingsService = require('../../modules/settings/settings.service');
 const env = require('../../config/env');
 const db = require('../../config/db');
 
+const MSG91_TEMPLATE_STATUS = {
+  APPROVED: 2,
+  REJECTED: 5
+};
+
+function getTemplateStatus(statusId) {
+  const numericId = Number(statusId);
+  if (numericId === 2) return "APPROVED";
+  if (numericId === 5) return "REJECTED";
+  return "PENDING";
+}
+
 /**
- * Normalizes MSG91 template/version status according to Section 3 & 4:
- * Internal status values: DRAFT, PENDING, ACTIVE, REJECTED, UNKNOWN
- * DO NOT guess numeric status_id (e.g., status_id: 2 does NOT automatically mean APPROVED unless verified).
+ * Normalizes MSG91 template/version status according to Section 1 & 6:
  */
 function normalizeMsg91Status(template) {
   if (!template || typeof template !== 'object') {
     return {
-      status: 'UNKNOWN',
+      status: 'PENDING',
       msg91StatusId: null,
       isActive: false,
       isDraft: false,
@@ -20,7 +30,6 @@ function normalizeMsg91Status(template) {
     };
   }
 
-  // If template has a versions array (MSG91 API GET /api/v5/email/templates?with=versions), unwrap active/first version
   let targetObj = template;
   if (Array.isArray(template.versions) && template.versions.length > 0) {
     const activeVer = template.versions.find(v => v && (v.is_active === true || v.is_active === 1 || v.is_active === '1')) || template.versions[0];
@@ -31,35 +40,13 @@ function normalizeMsg91Status(template) {
 
   const isDraft = Boolean(targetObj.is_draft === true || targetObj.is_draft === 1 || targetObj.is_draft === '1');
   const isActive = Boolean(targetObj.is_active === true || targetObj.is_active === 1 || targetObj.is_active === '1');
-
-  const statusStr = String(
-    targetObj.status || 
-    targetObj.template_version_status || 
-    targetObj.approval_status || 
-    targetObj.verification_status || 
-    targetObj.state || 
-    ''
-  ).toUpperCase().trim();
-
-  let status = 'UNKNOWN';
-
-  if (isDraft) {
-    status = 'DRAFT';
-  } else if (isActive || statusStr === 'ACTIVE' || statusStr === 'APPROVED' || statusStr === 'VERIFIED') {
-    status = 'ACTIVE';
-  } else if (statusStr === 'REJECTED' || statusStr === 'DISAPPROVED' || statusStr === 'FAILED') {
-    status = 'REJECTED';
-  } else if (statusStr === 'PENDING' || statusStr === 'IN_REVIEW' || statusStr === 'SUBMITTED' || statusStr === 'UNVERIFIED') {
-    status = 'PENDING';
-  } else {
-    status = 'UNKNOWN';
-  }
-
-  const usable = status === 'ACTIVE';
+  const statusId = targetObj.status_id !== undefined && targetObj.status_id !== null ? Number(targetObj.status_id) : null;
+  const status = getTemplateStatus(statusId);
+  const usable = status === 'APPROVED';
 
   return {
     status,
-    msg91StatusId: targetObj.status_id !== undefined && targetObj.status_id !== null ? Number(targetObj.status_id) : null,
+    msg91StatusId: statusId,
     isActive,
     isDraft,
     reasonId: targetObj.reason_id !== undefined && targetObj.reason_id !== null ? targetObj.reason_id : null,
@@ -757,4 +744,6 @@ class Msg91Provider extends EmailProvider {
 
 const instance = new Msg91Provider();
 instance.normalizeMsg91Status = normalizeMsg91Status;
+instance.MSG91_TEMPLATE_STATUS = MSG91_TEMPLATE_STATUS;
+instance.getTemplateStatus = getTemplateStatus;
 module.exports = instance;

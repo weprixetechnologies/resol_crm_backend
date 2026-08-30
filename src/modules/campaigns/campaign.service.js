@@ -224,11 +224,25 @@ class CampaignService {
       if (provider.name === 'msg91' || provider.provider === 'msg91') {
         let msg91CampaignTemplateId = campaign.template_id;
         if (campaign.template_id && (typeof campaign.template_id === 'number' || /^\d+$/.test(String(campaign.template_id)))) {
-          const [tRows] = await db.query('SELECT msg91_template_id, msg91_slug FROM email_templates WHERE id = ?', [campaign.template_id]);
-          if (tRows.length > 0 && (tRows[0].msg91_slug || tRows[0].msg91_template_id)) {
-            msg91CampaignTemplateId = tRows[0].msg91_slug || tRows[0].msg91_template_id;
+          const [intRows] = await db.query(
+            'SELECT msg91_template_id, provider_status FROM email_template_integrations WHERE crm_template_id = ? AND provider = "MSG91"',
+            [campaign.template_id]
+          );
+          if (intRows.length > 0) {
+            if (intRows[0].provider_status !== 'APPROVED') {
+              throw new Error(`Campaign send blocked: CRM Template #${campaign.template_id} status is ${intRows[0].provider_status}. Only APPROVED templates can be sent.`);
+            }
+            msg91CampaignTemplateId = intRows[0].msg91_template_id;
           } else {
-            msg91CampaignTemplateId = null;
+            const [tRows] = await db.query('SELECT msg91_template_id, msg91_slug, status FROM email_templates WHERE id = ?', [campaign.template_id]);
+            if (tRows.length > 0) {
+              if (tRows[0].status !== 'APPROVED') {
+                throw new Error(`Campaign send blocked: CRM Template #${campaign.template_id} status is ${tRows[0].status}. Only APPROVED templates can be sent.`);
+              }
+              msg91CampaignTemplateId = tRows[0].msg91_template_id || tRows[0].msg91_slug;
+            } else {
+              msg91CampaignTemplateId = null;
+            }
           }
         }
 

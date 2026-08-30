@@ -9,7 +9,7 @@ class MailController {
 
   async getTemplates(req, res) {
     const templates = await mailService.getTemplates();
-    res.json(ApiResponse.success(templates));
+    res.json({ success: true, templates, data: templates });
   }
 
   async getTemplateById(req, res) {
@@ -18,23 +18,75 @@ class MailController {
   }
 
   async createTemplate(req, res) {
-    const template = await mailService.createTemplate(req.body, req.user.id);
-    res.status(201).json(ApiResponse.success(template, 'Template created successfully'));
+    try {
+      const creatorId = req.user ? req.user.id : null;
+      const result = await mailService.createTemplate(req.body, creatorId);
+      res.status(201).json(result);
+    } catch (err) {
+      res.status(err.statusCode || 400).json({
+        success: false,
+        error: {
+          code: err.code || 'TEMPLATE_CREATION_FAILED',
+          message: err.message
+        }
+      });
+    }
   }
 
   async updateTemplate(req, res) {
-    const template = await mailService.updateTemplate(req.params.id, req.body, req.user.id);
+    const updaterId = req.user ? req.user.id : null;
+    const template = await mailService.updateTemplate(req.params.id, req.body, updaterId);
     res.json(ApiResponse.success(template, 'Template updated successfully'));
   }
 
   async deleteTemplate(req, res) {
-    const result = await mailService.deleteTemplate(req.params.id, req.user.id);
+    const deleterId = req.user ? req.user.id : null;
+    const result = await mailService.deleteTemplate(req.params.id, deleterId);
     res.json(ApiResponse.success(result, 'Template deleted successfully'));
   }
 
+  async getTemplateStatus(req, res) {
+    try {
+      const crmTemplateId = req.params.crmTemplateId || req.params.id;
+      const result = await mailService.getTemplateStatus(crmTemplateId);
+      res.json(result);
+    } catch (err) {
+      res.status(err.statusCode || 400).json({
+        success: false,
+        crmTemplateId: parseInt(req.params.crmTemplateId || req.params.id, 10) || null,
+        status: 'PENDING',
+        canSend: false,
+        error: {
+          code: err.code || 'STATUS_CHECK_FAILED',
+          message: err.message
+        }
+      });
+    }
+  }
+
   async sendMail(req, res) {
-    const result = await mailService.sendMail(req.body, req.user.id);
-    res.json(ApiResponse.success(result, result.message || 'Mails queued for BullMQ background processing!'));
+    try {
+      const senderId = req.user ? req.user.id : null;
+      const result = await mailService.sendMail(req.body, senderId);
+      res.json(result);
+    } catch (err) {
+      if (err.code === 'TEMPLATE_NOT_APPROVED' || err.code === 'TEMPLATE_REJECTED') {
+        return res.status(422).json({
+          success: false,
+          code: err.code,
+          message: err.message,
+          status: err.status || 'PENDING',
+          canSend: false
+        });
+      }
+      res.status(err.statusCode || 400).json({
+        success: false,
+        error: {
+          code: err.code || 'SEND_FAILED',
+          message: err.message
+        }
+      });
+    }
   }
 
   async getQueueStatus(req, res) {
@@ -51,13 +103,13 @@ class MailController {
   }
 
   async syncTemplateToMsg91(req, res) {
-    const result = await mailService.syncTemplateToMsg91(req.params.id);
-    res.json(ApiResponse.success(result, 'Template successfully synced to MSG91!'));
+    const result = await mailService.getTemplateStatus(req.params.id);
+    res.json(ApiResponse.success(result, 'Template status successfully refreshed from MSG91!'));
   }
 
   async syncAllTemplatesToMsg91(req, res) {
     const results = await mailService.syncAllTemplatesToMsg91();
-    res.json(ApiResponse.success(results, 'Batch template sync to MSG91 completed!'));
+    res.json(ApiResponse.success(results, 'Batch template status sync with MSG91 completed!'));
   }
 
   async getMsg91TemplatesLive(req, res) {
