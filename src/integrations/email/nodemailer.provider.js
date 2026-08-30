@@ -76,8 +76,28 @@ class NodemailerProvider extends EmailProvider {
     const { to, subject, html, text, from, fromName } = options;
     const config = await this.getTransporterConfig();
 
-    const senderEmail = from || config.fromEmail;
-    const senderName = fromName || config.fromName;
+    const extractEmail = (val) => {
+      if (!val) return '';
+      if (typeof val === 'object') return val.email || val.address || '';
+      if (typeof val === 'string') {
+        const match = val.match(/<([^>]+)>/);
+        return match ? match[1] : val;
+      }
+      return '';
+    };
+
+    const extractName = (val) => {
+      if (!val) return '';
+      if (typeof val === 'object') return val.name || '';
+      if (typeof val === 'string') {
+        const match = val.match(/^(.*?)\s*</);
+        return match ? match[1].replace(/['"]/g, '').trim() : '';
+      }
+      return '';
+    };
+
+    const senderEmail = extractEmail(from) || extractEmail(config.fromEmail);
+    const senderName = (typeof fromName === 'string' && fromName.trim()) ? fromName : (extractName(from) || extractName(config.fromName));
     const fromHeader = senderName ? `"${senderName}" <${senderEmail}>` : senderEmail;
 
     const info = await config.transporter.sendMail({

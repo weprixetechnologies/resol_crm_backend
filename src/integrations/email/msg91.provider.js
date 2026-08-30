@@ -165,11 +165,34 @@ class Msg91Provider extends EmailProvider {
     const rawDomain = (config.domain || '').trim();
     const domain = rawDomain.replace(/^https?:\/\//i, '').split('/')[0].trim();
 
-    let senderEmail = (from || config.fromEmail || '').trim();
+    const extractEmail = (val) => {
+      if (!val) return '';
+      if (typeof val === 'object') return val.email || val.address || '';
+      if (typeof val === 'string') {
+        const match = val.match(/<([^>]+)>/);
+        return match ? match[1] : val;
+      }
+      return '';
+    };
+
+    const extractName = (val) => {
+      if (!val) return '';
+      if (typeof val === 'object') return val.name || '';
+      if (typeof val === 'string') {
+        const match = val.match(/^(.*?)\s*</);
+        return match ? match[1].replace(/['"]/g, '').trim() : '';
+      }
+      return '';
+    };
+
+    const rawFromEmail = extractEmail(from) || extractEmail(config.fromEmail);
+    const rawFromName = (typeof fromName === 'string' && fromName.trim()) ? fromName : (extractName(from) || extractName(config.fromName) || 'RESOL CRM');
+
+    let senderEmail = (rawFromEmail || '').trim();
     if (!senderEmail || !senderEmail.includes('@')) {
       senderEmail = domain ? `info@${domain}` : 'info@weprixe.in';
     }
-    const senderName = (fromName || config.fromName || 'RESOL CRM').trim();
+    const senderName = (rawFromName || 'RESOL CRM').trim();
 
     if (!authKey) {
       throw new Error('MSG91 Auth Key is not configured in system settings');
