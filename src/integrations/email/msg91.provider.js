@@ -966,7 +966,7 @@ class Msg91Provider extends EmailProvider {
         email: emailStr,
         valid: false,
         resultStatus: 'undeliverable',
-        reason: 'INVALID_EMAIL_FORMAT',
+        reason: 'INVALID_SYNTAX',
         isDisposable: false,
         isFree: false,
         isRole: false
@@ -988,28 +988,52 @@ class Msg91Provider extends EmailProvider {
     let resJson;
     try { resJson = JSON.parse(resText); } catch { resJson = { raw: resText }; }
 
-    if (!response.ok || resJson.hasError || resJson.status === 'error') {
-      const errMsg = resJson.message || resJson.errors || `MSG91 Email Validation Failed (HTTP ${response.status})`;
-      return {
-        email: emailStr,
-        valid: false,
-        resultStatus: 'unknown',
-        reason: typeof errMsg === 'object' ? JSON.stringify(errMsg) : errMsg,
-        raw: resJson
-      };
+    if (!response.ok || resJson.hasError || resJson.status === 'error' || resJson.status === 'fail') {
+      let errMsg = `MSG91 Email Validation Failed (HTTP ${response.status})`;
+      if (Array.isArray(resJson.errors) && resJson.errors.length > 0) {
+        errMsg = resJson.errors.join(', ');
+      } else if (resJson.errors) {
+        errMsg = typeof resJson.errors === 'object' ? JSON.stringify(resJson.errors) : String(resJson.errors);
+      } else if (resJson.message) {
+        errMsg = typeof resJson.message === 'object' ? JSON.stringify(resJson.message) : String(resJson.message);
+      }
+
+      // Throw error to be caught by backend/frontend
+      throw new Error(errMsg);
     }
 
     const dataObj = resJson.data || {};
     const res = dataObj.result || {};
 
+    const rawStatus = (res.result || dataObj.result || 'unknown').toLowerCase();
+    const rawReason = (res.reason || dataObj.reason || '').toUpperCase();
+    const isDisposable = Boolean(res.is_disposable || dataObj.is_disposable);
+    const isFree = Boolean(res.is_free || dataObj.is_free);
+    const isRole = Boolean(res.is_role || dataObj.is_role);
+
+    let resultStatus = 'unknown';
+    if (['deliverable', 'risky', 'undeliverable', 'unknown'].includes(rawStatus)) {
+      resultStatus = rawStatus;
+    } else if (rawStatus === 'valid') {
+      resultStatus = 'deliverable';
+    } else if (rawStatus === 'invalid') {
+      resultStatus = 'undeliverable';
+    }
+
+    let reason = rawReason || null;
+    if (!reason) {
+      if (resultStatus === 'deliverable') reason = 'ACCEPTED_EMAIL';
+      else if (resultStatus === 'undeliverable') reason = 'UNKNOWN';
+    }
+
     return {
       email: dataObj.email || emailStr,
-      valid: Boolean(res.valid),
-      resultStatus: res.result || 'unknown',
-      reason: res.reason || null,
-      isDisposable: Boolean(res.is_disposable),
-      isFree: Boolean(res.is_free),
-      isRole: Boolean(res.is_role),
+      valid: resultStatus === 'deliverable',
+      resultStatus,
+      reason,
+      isDisposable,
+      isFree,
+      isRole,
       raw: dataObj
     };
   }
