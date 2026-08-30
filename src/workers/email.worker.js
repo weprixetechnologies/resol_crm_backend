@@ -18,6 +18,8 @@ const emailWorker = new Worker(
         throw new Error('Recipient email is missing');
       }
 
+      console.log(`[EmailWorker] Processing job #${job.id}: recipient=${recipientEmail}, templateId=${templateId || 'none'}, campaignId=${campaignId || 'none'}`);
+
       const crqid = campaignId
         ? `CRM_CR_${campaignId}_${recipient.user_id || recipientEmail.replace(/[^a-zA-Z0-9]/g, '')}`
         : logId
@@ -33,6 +35,7 @@ const emailWorker = new Worker(
         );
         if (intRows.length > 0) {
           if (intRows[0].provider_status !== 'APPROVED') {
+            console.warn(`[EmailWorker] Blocked send for CRM template #${templateId}: status is ${intRows[0].provider_status}`);
             throw new Error(`Email dispatch blocked: CRM Template #${templateId} status is ${intRows[0].provider_status}. Only APPROVED templates can be sent.`);
           }
           resolvedTemplateId = intRows[0].msg91_template_id;
@@ -40,6 +43,7 @@ const emailWorker = new Worker(
           const [tRows] = await db.query('SELECT msg91_template_id, msg91_slug, status FROM email_templates WHERE id = ?', [templateId]);
           if (tRows.length > 0) {
             if (tRows[0].status !== 'APPROVED') {
+              console.warn(`[EmailWorker] Blocked send for CRM template #${templateId}: status is ${tRows[0].status}`);
               throw new Error(`Email dispatch blocked: CRM Template #${templateId} status is ${tRows[0].status}. Only APPROVED templates can be sent.`);
             }
             resolvedTemplateId = tRows[0].msg91_template_id || tRows[0].msg91_slug;
@@ -48,6 +52,8 @@ const emailWorker = new Worker(
           }
         }
       }
+
+      console.log(`[EmailWorker] Resolved template #${templateId || 'none'} -> providerTemplateId="${resolvedTemplateId || 'none'}"`);
 
       // Execute send via active Email Provider (MSG91 or Nodemailer)
       const provider = await getActiveEmailProvider();

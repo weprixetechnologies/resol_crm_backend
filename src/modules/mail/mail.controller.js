@@ -90,11 +90,13 @@ class MailController {
   }
 
   async getQueueStatus(req, res) {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     const status = await mailService.getQueueStatus();
     res.json(ApiResponse.success(status));
   }
 
   async getLogs(req, res) {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const search = req.query.search || '';
@@ -118,6 +120,7 @@ class MailController {
   }
 
   async getMsg91Logs(req, res) {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     const results = await mailService.getMsg91EmailLogs(req.query);
     res.json(ApiResponse.success(results));
   }
