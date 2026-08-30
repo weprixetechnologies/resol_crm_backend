@@ -952,20 +952,29 @@ class MailService {
     const whereClauses = [];
     const queryParams = [];
 
-    if (params.search && params.search.trim()) {
-      const term = `%${params.search.trim()}%`;
-      whereClauses.push('(l.recipient_email LIKE ? OR l.recipient_name LIKE ? OR l.subject LIKE ? OR l.crqid LIKE ?)');
-      queryParams.push(term, term, term, term);
+    const searchVal = pObj.search ? String(pObj.search).trim() : '';
+    if (searchVal) {
+      const term = `%${searchVal}%`;
+      whereClauses.push('(l.recipient_email LIKE ? OR l.recipient_name LIKE ? OR l.subject LIKE ? OR l.crqid LIKE ? OR l.request_id LIKE ? OR l.failure_reason LIKE ? OR l.error_message LIKE ?)');
+      queryParams.push(term, term, term, term, term, term, term);
     }
 
-    if (params.status && params.status !== 'all') {
-      whereClauses.push('LOWER(l.status) = LOWER(?)');
-      queryParams.push(params.status.trim());
+    const statusVal = pObj.status ? String(pObj.status).trim() : 'all';
+    if (statusVal && statusVal.toLowerCase() !== 'all') {
+      const st = statusVal.toLowerCase();
+      if (st === 'failed') {
+        whereClauses.push('(LOWER(l.status) IN ("failed", "rejected", "bounced", "hard_bounce", "soft_bounce") OR l.failure_reason IS NOT NULL OR l.error_message IS NOT NULL)');
+      } else if (st === 'rejected') {
+        whereClauses.push('(LOWER(l.status) = "rejected" OR LOWER(l.failure_reason) LIKE "%reject%" OR LOWER(l.failure_reason) LIKE "%not delivering%")');
+      } else {
+        whereClauses.push('LOWER(l.status) = LOWER(?)');
+        queryParams.push(statusVal);
+      }
     }
 
-    if (params.startDate && params.endDate) {
+    if (pObj.startDate && pObj.endDate) {
       whereClauses.push('l.created_at >= ? AND l.created_at <= ?');
-      queryParams.push(`${params.startDate} 00:00:00`, `${params.endDate} 23:59:59`);
+      queryParams.push(`${pObj.startDate} 00:00:00`, `${pObj.endDate} 23:59:59`);
     }
 
     const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';

@@ -779,7 +779,70 @@ class Msg91Provider extends EmailProvider {
       throw new Error(typeof errMsg === 'object' ? JSON.stringify(errMsg) : errMsg);
     }
 
-    return resJson.data || resJson.logs || resJson;
+    const rawList = Array.isArray(resJson.data)
+      ? resJson.data
+      : (Array.isArray(resJson.logs) ? resJson.logs : (Array.isArray(resJson) ? resJson : []));
+
+    const items = rawList.map(item => {
+      if (!item || typeof item !== 'object') return null;
+
+      let recipientName = '';
+      if (item.sendTo) {
+        try {
+          const parsed = typeof item.sendTo === 'string' ? JSON.parse(item.sendTo) : item.sendTo;
+          if (Array.isArray(parsed) && parsed[0]?.name) {
+            recipientName = parsed[0].name;
+          }
+        } catch (e) {}
+      }
+
+      let timeline = [];
+      if (item.timeline && Array.isArray(item.timeline)) {
+        timeline = item.timeline.map(t => {
+          if (typeof t === 'string') {
+            try { return JSON.parse(t); } catch { return { description: t }; }
+          }
+          return t;
+        });
+      }
+
+      const failureReason = item.failureReason || item.description || item.failure_reason || null;
+      const statusStr = (item.status || 'UNKNOWN').trim();
+
+      return {
+        id: item.requestId || item.CRQID || item.msgId || item.imri || Math.random().toString(36).substr(2, 9),
+        crqid: item.CRQID || item.crqid || item.custom_var || null,
+        requestId: item.requestId || item.request_id || item.mailerRequestId || null,
+        uuid: item.UUID || item.uuid || item.msgId || item.imri || null,
+        recipientEmail: item.recipientEmail || item.recipient || item.email || '',
+        recipientName: recipientName || item.recipient_name || item.name || '',
+        senderEmail: item.senderEmail || item.from_email || '',
+        subject: item.subject || '',
+        templateName: item.templateName || item.template_name || '',
+        status: statusStr,
+        failureReason: failureReason,
+        error_message: failureReason,
+        description: item.description || failureReason,
+        createdAt: item.createdAt || item.created_at || item.requestedAt || new Date().toISOString(),
+        statusUpdatedAt: item.statusUpdatedAt || item.status_updated_at || null,
+        opened: Boolean(item.opened),
+        clicked: Boolean(item.clicked),
+        unsubscribed: Boolean(item.unsubscribed),
+        complaints: Boolean(item.complaints),
+        timeline: timeline,
+        raw: item
+      };
+    }).filter(Boolean);
+
+    const totalCount = resJson.metadata?.total || items.length;
+
+    return {
+      items,
+      total: totalCount,
+      page: parseInt(params.page || 1, 10),
+      limit: parseInt(params.limit || 20, 10),
+      rawResponse: resJson
+    };
   }
 
   /**
