@@ -7,7 +7,7 @@ class UserService {
   async createUser(payload, creatorId = null, creatorRole = 'public', overrideFuzzy = false) {
     const { name, email, mobile, city, state, designation, institute, department, country, region_type, country_code, remarks, status, tag1, tag2 } = payload;
     
-    const countryVal = (country || region_type || '').trim() || null;
+    const countryVal = (country && country.trim()) ? country.trim() : ((region_type && region_type.trim()) ? region_type.trim() : null);
 
     // Check duplicates
     const dupCheck = await DuplicateUtil.checkDuplicate({ email, mobile, name, city }, true);
