@@ -192,7 +192,10 @@ class MailService {
     }
 
     // Step 4: Process MSG91 creation response & save relationship
-    const { msg91_template_id, msg91_version_id, msg91_status_id, status } = msg91Res;
+    const msg91_template_id = msg91Res.msg91_template_id;
+    const msg91_version_id = msg91Res.msg91_version_id ? String(msg91Res.msg91_version_id) : null;
+    const msg91_status_id = msg91Res.msg91_status_id !== undefined && msg91Res.msg91_status_id !== null ? Number(msg91Res.msg91_status_id) : 1;
+    const providerStatus = msg91Res.status || msg91Provider.getTemplateStatus(msg91_status_id) || 'PENDING';
     const templateSlug = msg91Res.msg91_slug || slugName || String(msg91_template_id);
 
     try {
@@ -206,13 +209,13 @@ class MailService {
            msg91_status_id = VALUES(msg91_status_id),
            provider_status = VALUES(provider_status),
            last_synced_at = NOW()`,
-        [crmTemplateId, templateSlug, msg91_version_id ? String(msg91_version_id) : null, msg91_status_id, status]
+        [crmTemplateId, templateSlug, msg91_version_id, msg91_status_id, providerStatus]
       );
 
       // Flag as uploaded so it is never uploaded again
       await db.query(
         `UPDATE email_templates SET is_uploaded = 1, status = ?, msg91_template_id = ?, msg91_slug = ? WHERE id = ?`,
-        [status, templateSlug, templateSlug, crmTemplateId]
+        [providerStatus, templateSlug, templateSlug, crmTemplateId]
       );
     } catch (dbErr) {
       // Case C: MSG91 creates template but database mapping fails
@@ -229,11 +232,11 @@ class MailService {
       meta: { name, subject, crmTemplateId, msg91_template_id }
     });
 
-    const canSend = (status === 'APPROVED');
+    const canSend = (providerStatus === 'APPROVED');
     const responsePayload = {
       success: true,
       crmTemplateId,
-      status,
+      status: providerStatus,
       canSend
     };
 
@@ -276,17 +279,21 @@ class MailService {
         });
 
         if (msg91Res?.msg91_template_id) {
-          const { msg91_template_id, msg91_version_id, msg91_status_id, status } = msg91Res;
+          const msg91_template_id = msg91Res.msg91_template_id;
+          const msg91_version_id = msg91Res.msg91_version_id ? String(msg91Res.msg91_version_id) : null;
+          const msg91_status_id = msg91Res.msg91_status_id !== undefined && msg91Res.msg91_status_id !== null ? Number(msg91Res.msg91_status_id) : 2;
+          const providerStatus = msg91Res.status || msg91Provider.getTemplateStatus(msg91_status_id) || 'APPROVED';
+
           await db.query(
             `INSERT INTO email_template_integrations 
              (crm_template_id, provider, msg91_template_id, msg91_version_id, msg91_status_id, provider_status, last_synced_at)
              VALUES (?, 'MSG91', ?, ?, ?, ?, NOW())
              ON DUPLICATE KEY UPDATE msg91_version_id = VALUES(msg91_version_id), msg91_status_id = VALUES(msg91_status_id), provider_status = VALUES(provider_status), last_synced_at = NOW()`,
-            [numericId, String(msg91_template_id), msg91_version_id ? String(msg91_version_id) : null, msg91_status_id, status]
+            [numericId, String(msg91_template_id), msg91_version_id, msg91_status_id, providerStatus]
           );
           await db.query(
             `UPDATE email_templates SET is_uploaded = 1, status = ?, msg91_template_id = ?, msg91_slug = ? WHERE id = ?`,
-            [status, String(msg91_template_id), msg91Res.msg91_slug, numericId]
+            [providerStatus, String(msg91_template_id), msg91Res.msg91_slug, numericId]
           );
         }
       } catch (mErr) {

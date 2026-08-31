@@ -586,13 +586,29 @@ class Msg91Provider extends EmailProvider {
       throw new Error(typeof errMsg === 'object' ? JSON.stringify(errMsg) : errMsg);
     }
 
-    const msg91Slug = resJson.data?.slug || resJson.slug || slugName;
-    const msg91Id = resJson.data?.id || resJson.id || resJson.data?.template_id || msg91Slug;
+    const data = resJson.data || resJson || {};
+    const versions = Array.isArray(data.versions) ? data.versions : [];
+    const activeVersion = versions.find(v => v && (v.is_active === true || v.is_active === 1 || v.is_active === '1')) || versions[0] || null;
+
+    // ID, Version ID, and Slug extraction
+    const msg91Id = data.id || data.template_id || (activeVersion ? activeVersion.template_id : null) || resJson.id || slugName;
+    const msg91VersionId = activeVersion ? activeVersion.id : (data.version_id || null);
+    const msg91Slug = data.slug || (activeVersion ? activeVersion.slug : null) || resJson.slug || slugName;
+
+    // Default status is PENDING (status_id: 1)
+    const statusId = activeVersion && activeVersion.status_id !== undefined 
+      ? Number(activeVersion.status_id) 
+      : (data.status_id !== undefined ? Number(data.status_id) : 1);
+    
+    const mappedStatus = getTemplateStatus(statusId); // Returns "APPROVED" (2), "REJECTED" (5), or default "PENDING" (1)
 
     return {
       success: true,
       msg91_template_id: String(msg91Id),
+      msg91_version_id: msg91VersionId ? String(msg91VersionId) : null,
       msg91_slug: String(msg91Slug),
+      msg91_status_id: statusId,
+      status: mappedStatus,
       raw: resJson
     };
   }
