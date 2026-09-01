@@ -8,6 +8,9 @@ const ApiResponse = require('./utils/apiResponse');
 
 const app = express();
 
+// Trust reverse proxy headers (Nginx/Cloudflare) for rate limiting & IP tracking
+app.set('trust proxy', 1);
+
 // Middlewares: Relax Helmet for cross-origin access
 app.use(helmet({
   crossOriginResourcePolicy: false,

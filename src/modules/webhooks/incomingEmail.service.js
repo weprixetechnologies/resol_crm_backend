@@ -305,7 +305,7 @@ class IncomingEmailService {
           bodyText,
           bodyHtml,
           messageId,
-          inReplyTo,
+          rawInReplyTo,
           references,
           providerMessageId,
           receivedAt,
