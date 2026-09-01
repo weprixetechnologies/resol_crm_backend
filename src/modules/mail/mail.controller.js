@@ -144,6 +144,12 @@ class MailController {
     res.json(ApiResponse.success(result));
   }
 
+  async getConversationMessages(req, res) {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    const result = await mailService.getConversationMessages(req.params.id);
+    res.json(ApiResponse.success(result));
+  }
+
   async getLogJourney(req, res) {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     const result = await mailService.getLogJourney(req.params.id);

@@ -1355,6 +1355,18 @@ class MailService {
       totalPages: Math.ceil(total / limit) || 1
     };
   }
+  async getConversationMessages(conversationId) {
+    const [messages] = await db.query(
+      `SELECT m.*, c.subject as conversation_subject, u.name as contact_name, u.email as contact_email
+       FROM email_messages m
+       LEFT JOIN email_conversations c ON m.conversation_id = c.id
+       LEFT JOIN users u ON m.contact_id = u.id
+       WHERE m.conversation_id = ?
+       ORDER BY m.received_at ASC`,
+      [conversationId]
+    );
+    return messages;
+  }
 }
 
 module.exports = new MailService();

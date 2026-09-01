@@ -177,19 +177,31 @@ class IncomingEmailService {
     const { name: recipientName, email: recipientEmail } = this.parseEmailHeader(rawTo);
 
     const subject = (payload.subject || 'No Subject').trim();
-    const bodyText = payload.text || payload.plain || payload.body_text || payload['body-plain'] || '';
-    const rawHtml = payload.html || payload.body_html || payload.body || payload['body-html'] || bodyText;
-    const bodyHtml = sanitizeHtml(rawHtml);
+    
+    let bodyText = payload.text || payload.plain || payload.body_text || payload.body_plain || payload['body-plain'] || payload.stripped_text || payload['stripped-text'] || payload.content || '';
+    if (!bodyText && typeof payload.body === 'string') {
+      bodyText = payload.body;
+    }
+    if (!bodyText && payload.body && typeof payload.body === 'object') {
+      bodyText = payload.body.text || payload.body.plain || payload.body.html || '';
+    }
 
-    const messageId = (payload['message-id'] || payload.message_id || payload.msg_id || payload.uuid || '').trim();
+    let rawHtml = payload.html || payload.body_html || payload['body-html'] || payload.stripped_html || payload['stripped-html'] || bodyText;
+    if (typeof payload.body === 'string' && (payload.body.includes('<p>') || payload.body.includes('<div>') || payload.body.includes('<br>') || payload.body.includes('<html'))) {
+      rawHtml = payload.body;
+    }
+
+    const bodyHtml = sanitizeHtml(rawHtml || bodyText || 'No content.');
+
+    const messageId = (payload['message-id'] || payload.message_id || payload.msg_id || payload.uuid || payload.id || '').trim();
     const rawInReplyTo = (payload['in-reply-to'] || payload.in_reply_to || payload.inReplyTo || '').trim();
     const cleanInReplyTo = rawInReplyTo.replace(/^<|>$/g, '').trim();
     const formattedInReplyTo = cleanInReplyTo ? `<${cleanInReplyTo}>` : '';
 
     const references = (payload.references || payload.References || '').trim();
-    const providerMessageId = (payload.provider_message_id || messageId || `${Date.now()}_${senderEmail}`).trim();
+    const providerMessageId = (payload.provider_message_id || payload.id || messageId || `${Date.now()}_${senderEmail}`).trim();
 
-    const receivedAt = payload.timestamp ? new Date(payload.timestamp * 1000) : (payload.received_at ? new Date(payload.received_at) : new Date());
+    const receivedAt = payload.timestamp ? new Date(payload.timestamp * 1000) : (payload.createdAt ? new Date(payload.createdAt) : (payload.received_at ? new Date(payload.received_at) : new Date()));
 
     // Process attachments
     const rawAttachments = payload.attachments || payload.files || [];
@@ -221,8 +233,15 @@ class IncomingEmailService {
             OR msg_id = ? OR msg_id = ? 
             OR request_id = ? OR request_id = ? 
             OR crqid = ? OR crqid = ? 
+            OR msg91_uuid = ? OR msg91_uuid = ?
          LIMIT 1`,
-        [formattedInReplyTo, cleanInReplyTo, formattedInReplyTo, cleanInReplyTo, formattedInReplyTo, cleanInReplyTo, formattedInReplyTo, cleanInReplyTo]
+        [
+          formattedInReplyTo, cleanInReplyTo,
+          formattedInReplyTo, cleanInReplyTo,
+          formattedInReplyTo, cleanInReplyTo,
+          formattedInReplyTo, cleanInReplyTo,
+          formattedInReplyTo, cleanInReplyTo
+        ]
       );
       if (log) {
         matchedLog = log;
