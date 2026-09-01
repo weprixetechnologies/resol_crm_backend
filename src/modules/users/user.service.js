@@ -481,11 +481,21 @@ class UserService {
       [userId, userEmail, userEmail]
     );
 
+    const [messages] = await db.query(
+      `SELECT m.*, c.subject as conversation_subject
+       FROM email_messages m
+       LEFT JOIN email_conversations c ON m.conversation_id = c.id
+       WHERE m.contact_id = ? OR (LOWER(m.from_email) = ? AND ? IS NOT NULL) OR (LOWER(m.to_email) = ? AND ? IS NOT NULL)
+       ORDER BY m.received_at DESC`,
+      [userId, userEmail, userEmail, userEmail, userEmail]
+    );
+
     return {
       user: { id: user.id, name: user.name, email: user.email },
       logs,
       campaigns: campaignParticipations,
-      events
+      events,
+      messages
     };
   }
 

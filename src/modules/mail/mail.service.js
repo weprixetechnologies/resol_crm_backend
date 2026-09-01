@@ -769,18 +769,59 @@ class MailService {
 
     // Pre-flight: Create individual email_logs and email_events BEFORE calling MSG91
     const preparedRecipients = [];
+    const fromEmailStr = (fromSender.email || 'journals@weprixe.in').trim().toLowerCase();
+    const fromNameStr = fromSender.name || 'RESOL CRM';
+
     for (const r of recipientList) {
       const crqid = `CRM_LOG_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
       const varsJson = JSON.stringify(r.variables || {});
+      
+      // Get or create conversation thread for contact
+      let conversationId = null;
+      if (r.user_id) {
+        const [[conv]] = await db.query(
+          'SELECT id FROM email_conversations WHERE contact_id = ? AND LOWER(subject) = LOWER(?) ORDER BY last_message_at DESC LIMIT 1',
+          [r.user_id, mailSubject]
+        );
+        if (conv) {
+          conversationId = conv.id;
+          await db.query('UPDATE email_conversations SET last_message_at = NOW() WHERE id = ?', [conversationId]);
+        }
+      }
+
+      if (!conversationId) {
+        const [cRes] = await db.query(
+          `INSERT INTO email_conversations (contact_id, subject, last_message_at) VALUES (?, ?, NOW())`,
+          [r.user_id || null, mailSubject]
+        );
+        conversationId = cRes.insertId;
+      }
 
       const [insertRes] = await db.query(
         `INSERT INTO email_logs 
-         (crqid, recipient_email, recipient_name, user_id, template_id, msg91_template_id, subject, variables, status, sent_by, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'QUEUED', ?, NOW())`,
-        [crqid, r.email, r.name || null, r.user_id || null, targetCrmTemplateId || null, msg91TemplateId || null, mailSubject, varsJson, senderId || null]
+         (crqid, recipient_email, recipient_name, user_id, template_id, msg91_template_id, subject, variables, status, sent_by, conversation_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'QUEUED', ?, ?, NOW())`,
+        [crqid, r.email, r.name || null, r.user_id || null, targetCrmTemplateId || null, msg91TemplateId || null, mailSubject, varsJson, senderId || null, conversationId]
       );
 
       const logId = insertRes.insertId;
+      const domainName = fromEmailStr.includes('@') ? fromEmailStr.split('@')[1] : 'weprixe.in';
+      const messageIdHeader = `<crm-log-${logId}-${Date.now()}@${domainName}>`;
+
+      await db.query(`UPDATE email_logs SET message_id_header = ? WHERE id = ?`, [messageIdHeader, logId]);
+
+      // Record outbound email in email_messages table
+      try {
+        await db.query(
+          `INSERT INTO email_messages (
+            conversation_id, contact_id, email_log_id, direction, from_email, from_name,
+            to_email, to_name, subject, body_html, message_id, received_at
+          ) VALUES (?, ?, ?, 'outbound', ?, ?, ?, ?, ?, ?, ?, NOW())`,
+          [conversationId, r.user_id || null, logId, fromEmailStr, fromNameStr, r.email, r.name || null, mailSubject, mailHtml, messageIdHeader]
+        );
+      } catch (mErr) {
+        console.warn('[MailService] email_messages outbound insert warning:', mErr.message);
+      }
 
       try {
         await db.query(
@@ -795,7 +836,9 @@ class MailService {
       preparedRecipients.push({
         ...r,
         logId,
-        crqid
+        crqid,
+        messageIdHeader,
+        conversationId
       });
     }
 

@@ -275,6 +275,59 @@ async function migrate() {
     await safeAddColumn(`ALTER TABLE campaign_recipients ADD COLUMN last_opened_at DATETIME NULL;`);
     await safeAddColumn(`ALTER TABLE campaign_recipients ADD COLUMN last_clicked_at DATETIME NULL;`);
 
+    // Two-Way Email Conversations Table
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS email_conversations (
+        id              BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        contact_id      BIGINT UNSIGNED NULL,
+        subject         VARCHAR(255) NOT NULL,
+        last_message_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_conv_contact (contact_id),
+        INDEX idx_conv_last_msg (last_message_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    // Inbound & Outbound Email Messages Table
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS email_messages (
+        id                  BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        conversation_id     BIGINT UNSIGNED NULL,
+        contact_id          BIGINT UNSIGNED NULL,
+        email_log_id        BIGINT UNSIGNED NULL,
+        direction           ENUM('outbound', 'inbound') NOT NULL DEFAULT 'inbound',
+        from_email          VARCHAR(200) NOT NULL,
+        from_name           VARCHAR(150) NULL,
+        to_email            VARCHAR(200) NOT NULL,
+        to_name             VARCHAR(150) NULL,
+        subject             VARCHAR(255) NOT NULL,
+        body_text           LONGTEXT NULL,
+        body_html           LONGTEXT NULL,
+        message_id          VARCHAR(255) NULL,
+        in_reply_to         VARCHAR(255) NULL,
+        references_header   TEXT NULL,
+        provider_message_id VARCHAR(100) NULL UNIQUE,
+        received_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        attachments         JSON NULL,
+        raw_payload         JSON NULL,
+        created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_msg_conv (conversation_id),
+        INDEX idx_msg_contact (contact_id),
+        INDEX idx_msg_direction (direction),
+        INDEX idx_msg_from (from_email),
+        INDEX idx_msg_to (to_email),
+        INDEX idx_msg_mid (message_id),
+        INDEX idx_msg_in_reply (in_reply_to),
+        INDEX idx_msg_received (received_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    // Add tracking columns to email_logs
+    await safeAddColumn(`ALTER TABLE email_logs ADD COLUMN message_id_header VARCHAR(255) NULL;`);
+    await safeAddColumn(`ALTER TABLE email_logs ADD COLUMN conversation_id BIGINT UNSIGNED NULL;`);
+    await safeAddColumn(`ALTER TABLE email_logs ADD COLUMN reply_to_email VARCHAR(200) NULL;`);
+
     const safeAddIndex = async (query) => {
       try {
         await db.query(query);
@@ -289,6 +342,8 @@ async function migrate() {
 
     await safeAddIndex(`CREATE INDEX idx_email_logs_crqid ON email_logs (crqid);`);
     await safeAddIndex(`CREATE INDEX idx_email_logs_msg_id ON email_logs (msg_id);`);
+    await safeAddIndex(`CREATE INDEX idx_email_logs_mid_hdr ON email_logs (message_id_header);`);
+    await safeAddIndex(`CREATE INDEX idx_email_logs_conv ON email_logs (conversation_id);`);
     await safeAddIndex(`CREATE INDEX idx_camp_rec_crqid ON campaign_recipients (crqid);`);
     await safeAddIndex(`CREATE INDEX idx_camp_rec_msg_id ON campaign_recipients (msg_id);`);
 

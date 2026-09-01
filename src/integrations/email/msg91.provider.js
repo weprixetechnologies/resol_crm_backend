@@ -278,6 +278,11 @@ class Msg91Provider extends EmailProvider {
       domain: domain
     };
 
+    const replyToEmail = (options.replyTo || options.reply_to || config.replyEmail || config.fromEmail || senderEmail || '').trim();
+    if (replyToEmail) {
+      payload.reply_to = [{ email: replyToEmail }];
+    }
+
     if (options.crqid || options.crqId) {
       payload.crqid = options.crqid || options.crqId;
     }
