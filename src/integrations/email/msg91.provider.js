@@ -191,7 +191,7 @@ class Msg91Provider extends EmailProvider {
 
     let senderEmail = (rawFromEmail || '').trim();
     if (!senderEmail || !senderEmail.includes('@')) {
-      senderEmail = domain ? `info@${domain}` : 'info@weprixe.in';
+      senderEmail = domain ? `info@${domain}` : '';
     }
     const senderName = (rawFromName || 'RESOL CRM').trim();
 

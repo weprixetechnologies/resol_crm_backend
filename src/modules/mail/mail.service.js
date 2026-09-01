@@ -734,9 +734,26 @@ class MailService {
 
     const mailSubject = subject || templateObj?.subject || 'Notification from RESOL CRM';
     const mailHtml = body_html || body || templateObj?.body_html || '';
-    const fromSender = from || { name: 'RESOL CRM', email: 'hello@weprixe.in' };
-
     const activeProvider = await getActiveEmailProvider();
+    let providerConfig = {};
+    if (activeProvider.name === 'msg91' || activeProvider.provider === 'msg91') {
+      try {
+        providerConfig = await msg91Provider.getConfig();
+      } catch (cErr) {
+        console.warn('[MailService] Failed to load provider config:', cErr.message);
+      }
+    }
+
+    const defaultFromEmail = (providerConfig.fromEmail || process.env.MSG91_FROM_EMAIL || '').trim();
+    const defaultFromName = (providerConfig.fromName || process.env.MSG91_FROM_NAME || 'RESOL CRM').trim();
+    const defaultReplyTo = (providerConfig.replyToEmail || process.env.MSG91_REPLY_TO_EMAIL || defaultFromEmail).trim();
+
+    const fromSender = {
+      name: (from && from.name) || defaultFromName,
+      email: (from && from.email) || defaultFromEmail
+    };
+
+    const replyToEmail = (options.replyTo || options.reply_to || defaultReplyTo || fromSender.email).trim();
 
     // Check hard-bounce suppression list from email_bounces table (PART 14 & PART 28)
     const recipientEmails = recipientList.map(r => r.email.toLowerCase());
@@ -769,8 +786,8 @@ class MailService {
 
     // Pre-flight: Create individual email_logs and email_events BEFORE calling MSG91
     const preparedRecipients = [];
-    const fromEmailStr = (fromSender.email || 'journals@weprixe.in').trim().toLowerCase();
-    const fromNameStr = fromSender.name || 'RESOL CRM';
+    const fromEmailStr = (fromSender.email || defaultFromEmail).trim().toLowerCase();
+    const fromNameStr = fromSender.name || defaultFromName;
 
     for (const r of recipientList) {
       const crqid = `CRM_LOG_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
@@ -805,7 +822,7 @@ class MailService {
       );
 
       const logId = insertRes.insertId;
-      const domainName = fromEmailStr.includes('@') ? fromEmailStr.split('@')[1] : 'weprixe.in';
+      const domainName = fromEmailStr.includes('@') ? fromEmailStr.split('@')[1] : (providerConfig.domain || 'domain.com');
       const messageIdHeader = `<crm-log-${logId}-${Date.now()}@${domainName}>`;
 
       await db.query(`UPDATE email_logs SET message_id_header = ? WHERE id = ?`, [messageIdHeader, logId]);
@@ -861,9 +878,10 @@ class MailService {
       const msg91Payload = {
         recipients: formattedRecipients,
         from: {
-          name: fromSender.name || 'RESOL CRM',
-          email: fromSender.email || 'hello@weprixe.in'
+          name: fromSender.name,
+          email: fromSender.email
         },
+        replyTo: replyToEmail,
         templateId: msg91TemplateId,
         subject: mailSubject,
         html: mailHtml
