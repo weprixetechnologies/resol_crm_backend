@@ -76,9 +76,10 @@ class Msg91Provider extends EmailProvider {
     const domain = settings.msg91_domain || env.MSG91_DOMAIN || '';
     const fromEmail = settings.msg91_from_email || env.MSG91_FROM_EMAIL || '';
     const fromName = settings.msg91_from_name || env.MSG91_FROM_NAME || 'RESOL CRM';
+    const replyToEmail = settings.msg91_reply_to_email || settings.reply_to_email || env.MSG91_REPLY_TO_EMAIL || '';
     const defaultTemplateId = settings.msg91_default_template_id || env.MSG91_DEFAULT_TEMPLATE_ID || '';
 
-    return { authKey, domain, fromEmail, fromName, defaultTemplateId };
+    return { authKey, domain, fromEmail, fromName, replyToEmail, defaultTemplateId };
   }
 
   /**
@@ -278,7 +279,7 @@ class Msg91Provider extends EmailProvider {
       domain: domain
     };
 
-    const replyToEmail = (options.replyTo || options.reply_to || config.replyEmail || config.fromEmail || senderEmail || '').trim();
+    const replyToEmail = (options.replyTo || options.reply_to || config.replyToEmail || config.reply_to_email || config.fromEmail || senderEmail || '').trim();
     if (replyToEmail) {
       payload.reply_to = [{ email: replyToEmail }];
     }
