@@ -509,8 +509,8 @@ class MailService {
   }
 
   // --- NEW API: EMAIL SENDING ---
-  async sendMail(payload, senderId) {
-    const { crmTemplateId, templateId, recipients, from, customerIds, customEmails, sendToAll, filterCriteria, subject, body_html, body } = payload;
+  async sendMail(payload = {}, senderId) {
+    const { crmTemplateId, templateId, recipients, from, customerIds, customEmails, sendToAll, filterCriteria, subject, body_html, body, replyTo, reply_to, options } = payload;
     const targetCrmTemplateId = crmTemplateId || templateId;
 
     let templateObj = null;
@@ -753,7 +753,8 @@ class MailService {
       email: (from && from.email) || defaultFromEmail
     };
 
-    const replyToEmail = (options.replyTo || options.reply_to || defaultReplyTo || fromSender.email).trim();
+    const optionsObj = options || payload || {};
+    const replyToEmail = (replyTo || reply_to || optionsObj.replyTo || optionsObj.reply_to || defaultReplyTo || fromSender.email || '').trim();
 
     // Check hard-bounce suppression list from email_bounces table (PART 14 & PART 28)
     const recipientEmails = recipientList.map(r => r.email.toLowerCase());
