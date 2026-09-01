@@ -323,6 +323,11 @@ async function migrate() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
+    // Add columns to email_messages
+    await safeAddColumn(`ALTER TABLE email_messages ADD COLUMN cc VARCHAR(500) NULL;`);
+    await safeAddColumn(`ALTER TABLE email_messages ADD COLUMN bcc VARCHAR(500) NULL;`);
+    await safeAddColumn(`ALTER TABLE email_messages ADD COLUMN raw_mime LONGTEXT NULL;`);
+
     // Add tracking columns to email_logs
     await safeAddColumn(`ALTER TABLE email_logs ADD COLUMN message_id_header VARCHAR(255) NULL;`);
     await safeAddColumn(`ALTER TABLE email_logs ADD COLUMN conversation_id BIGINT UNSIGNED NULL;`);
