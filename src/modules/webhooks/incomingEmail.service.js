@@ -10,17 +10,46 @@ class IncomingEmailService {
    * Helper to parse email address and display name from raw email string
    * e.g. "John Doe <john@example.com>" -> { name: "John Doe", email: "john@example.com" }
    */
-  parseEmailHeader(rawStr) {
-    if (!rawStr || typeof rawStr !== 'string') return { name: '', email: '' };
-    const trimmed = rawStr.trim();
-    const match = trimmed.match(/^(?:"?([^"]*)"?\s*)?<?([^\s>]+@[^\s>]+)>?$/);
+  /**
+   * Helper to parse email address and display name from string or MSG91 object
+   * e.g. { display: "weprixe", address: "weprixeofficial@gmail.com" }
+   * or "John Doe <john@example.com>" -> { name: "John Doe", email: "john@example.com" }
+   */
+  parseEmailHeader(rawVal) {
+    if (!rawVal) return { name: '', email: '' };
+
+    if (typeof rawVal === 'object') {
+      const email = (rawVal.address || rawVal.email || rawVal.to || rawVal.from || '').toString().trim().toLowerCase();
+      const name = (rawVal.display || rawVal.name || (email ? email.split('@')[0] : '')).toString().trim();
+      return { name, email };
+    }
+
+    let str = String(rawVal).trim();
+
+    if (str.startsWith('{') && str.endsWith('}')) {
+      try {
+        const parsed = JSON.parse(str);
+        const email = (parsed.address || parsed.email || parsed.to || parsed.from || '').toString().trim().toLowerCase();
+        const name = (parsed.display || parsed.name || (email ? email.split('@')[0] : '')).toString().trim();
+        if (email) return { name, email };
+      } catch {}
+    }
+
+    const match = str.match(/^(?:"?([^"]*)"?\s*)?<?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})>?$/i);
     if (match) {
       return {
         name: (match[1] || match[2].split('@')[0]).trim(),
         email: match[2].trim().toLowerCase()
       };
     }
-    return { name: trimmed.split('@')[0] || '', email: trimmed.toLowerCase() };
+
+    const emailRegexMatch = str.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+    if (emailRegexMatch) {
+      const email = emailRegexMatch[0].toLowerCase();
+      return { name: email.split('@')[0], email };
+    }
+
+    return { name: str.split('@')[0] || '', email: str.toLowerCase() };
   }
 
   /**
@@ -153,7 +182,10 @@ class IncomingEmailService {
     const bodyHtml = sanitizeHtml(rawHtml);
 
     const messageId = (payload['message-id'] || payload.message_id || payload.msg_id || payload.uuid || '').trim();
-    const inReplyTo = (payload['in-reply-to'] || payload.in_reply_to || payload.inReplyTo || '').trim();
+    const rawInReplyTo = (payload['in-reply-to'] || payload.in_reply_to || payload.inReplyTo || '').trim();
+    const cleanInReplyTo = rawInReplyTo.replace(/^<|>$/g, '').trim();
+    const formattedInReplyTo = cleanInReplyTo ? `<${cleanInReplyTo}>` : '';
+
     const references = (payload.references || payload.References || '').trim();
     const providerMessageId = (payload.provider_message_id || messageId || `${Date.now()}_${senderEmail}`).trim();
 
@@ -166,7 +198,7 @@ class IncomingEmailService {
     // 2. Generate Idempotency Key
     const idempotencyKey = crypto.createHash('md5').update(`${providerMessageId}:${senderEmail}:${subject}`).digest('hex');
 
-    console.log(`[INCOMING_EMAIL_WEBHOOK] Received reply from=${senderEmail} subject="${subject}" messageId=${messageId} inReplyTo=${inReplyTo}`);
+    console.log(`[INCOMING_EMAIL_WEBHOOK] Received reply from=${senderEmail} subject="${subject}" messageId=${messageId} inReplyTo=${rawInReplyTo}`);
 
     // 3. Match CRM Contact (users table)
     let contactId = null;
@@ -181,9 +213,17 @@ class IncomingEmailService {
     let conversationId = null;
     let matchedLog = null;
 
-    // Reliability Step 1: Match In-Reply-To against email_logs.message_id_header or email_messages.message_id
-    if (inReplyTo) {
-      const [[log]] = await db.query('SELECT id, conversation_id, user_id FROM email_logs WHERE message_id_header = ? OR msg_id = ? LIMIT 1', [inReplyTo, inReplyTo]);
+    // Reliability Step 1: Match In-Reply-To against email_logs or email_messages
+    if (cleanInReplyTo) {
+      const [[log]] = await db.query(
+        `SELECT id, conversation_id, user_id FROM email_logs 
+         WHERE message_id_header = ? OR message_id_header = ? 
+            OR msg_id = ? OR msg_id = ? 
+            OR request_id = ? OR request_id = ? 
+            OR crqid = ? OR crqid = ? 
+         LIMIT 1`,
+        [formattedInReplyTo, cleanInReplyTo, formattedInReplyTo, cleanInReplyTo, formattedInReplyTo, cleanInReplyTo, formattedInReplyTo, cleanInReplyTo]
+      );
       if (log) {
         matchedLog = log;
         conversationId = log.conversation_id;
@@ -191,7 +231,12 @@ class IncomingEmailService {
       }
 
       if (!conversationId) {
-        const [[msg]] = await db.query('SELECT conversation_id, contact_id FROM email_messages WHERE message_id = ? OR provider_message_id = ? LIMIT 1', [inReplyTo, inReplyTo]);
+        const [[msg]] = await db.query(
+          `SELECT conversation_id, contact_id FROM email_messages 
+           WHERE message_id = ? OR message_id = ? OR provider_message_id = ? OR provider_message_id = ? 
+           LIMIT 1`,
+          [formattedInReplyTo, cleanInReplyTo, formattedInReplyTo, cleanInReplyTo]
+        );
         if (msg) {
           conversationId = msg.conversation_id;
           if (!contactId && msg.contact_id) contactId = msg.contact_id;
