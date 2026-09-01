@@ -1317,6 +1317,44 @@ class MailService {
       recipientCount: targetEmails.length
     };
   }
+  async getInboundReplies(params = {}) {
+    const page = parseInt(params.page, 10) || 1;
+    const limit = parseInt(params.limit, 10) || 20;
+    const offset = (page - 1) * limit;
+    const search = (params.search || '').trim();
+
+    let whereClause = "WHERE m.direction = 'inbound'";
+    const queryParams = [];
+
+    if (search) {
+      whereClause += " AND (m.from_email LIKE ? OR m.subject LIKE ? OR u.name LIKE ? OR m.body_text LIKE ?)";
+      const searchPattern = `%${search}%`;
+      queryParams.push(searchPattern, searchPattern, searchPattern, searchPattern);
+    }
+
+    const [[{ total }]] = await db.query(
+      `SELECT COUNT(*) as total FROM email_messages m LEFT JOIN users u ON m.contact_id = u.id ${whereClause}`,
+      queryParams
+    );
+
+    const [items] = await db.query(
+      `SELECT m.*, u.name as contact_name, u.email as contact_email
+       FROM email_messages m
+       LEFT JOIN users u ON m.contact_id = u.id
+       ${whereClause}
+       ORDER BY m.received_at DESC
+       LIMIT ? OFFSET ?`,
+      [...queryParams, limit, offset]
+    );
+
+    return {
+      items,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit) || 1
+    };
+  }
 }
 
 module.exports = new MailService();
