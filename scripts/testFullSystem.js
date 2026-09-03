@@ -1,5 +1,5 @@
 async function testFull() {
-  const baseURL = 'https://apicrm.cursiveletters.in/api';
+  const baseURL = 'https://apicrm.resolglobal.in/api';
   let adminToken = '';
 
   try {
