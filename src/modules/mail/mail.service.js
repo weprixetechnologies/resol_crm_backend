@@ -448,11 +448,78 @@ class MailService {
     return responsePayload;
   }
 
+  async syncFromMsg91() {
+    try {
+      const liveTemplates = await msg91Provider.listTemplatesInMsg91();
+      if (!Array.isArray(liveTemplates) || liveTemplates.length === 0) return [];
+
+      const synced = [];
+      for (const t of liveTemplates) {
+        const slug = t.slug || String(t.id);
+        const name = t.name || t.slug || (`MSG91 Template ${t.id}`);
+
+        let targetVer = null;
+        if (Array.isArray(t.versions) && t.versions.length > 0) {
+          targetVer = t.versions.find(v => v.is_active === true || v.is_active === 1 || v.is_active === '1') || t.versions[0];
+        } else {
+          targetVer = t;
+        }
+
+        const subject = targetVer?.subject || t.subject || (`Template: ${name}`);
+        const bodyHtml = targetVer?.body || t.body || '';
+        const statusId = targetVer?.status_id !== undefined ? Number(targetVer.status_id) : (t.status_id ?? 2);
+        const mappedStatus = msg91Provider.getTemplateStatus(statusId);
+        const versionId = targetVer?.id ? String(targetVer.id) : null;
+
+        if (!bodyHtml) continue;
+
+        const [existing] = await db.query(
+          'SELECT id FROM email_templates WHERE msg91_slug = ? OR msg91_template_id = ? OR slug = ? OR (name = ? AND is_uploaded = 1)',
+          [slug, slug, slug, name]
+        );
+
+        let crmId;
+        if (existing.length > 0) {
+          crmId = existing[0].id;
+          await db.query(
+            'UPDATE email_templates SET name = ?, subject = ?, body_html = ?, status = ?, is_uploaded = 1, msg91_slug = ?, msg91_template_id = ?, updated_at = NOW() WHERE id = ?',
+            [name, subject, bodyHtml, mappedStatus, slug, slug, crmId]
+          );
+        } else {
+          const [ins] = await db.query(
+            'INSERT INTO email_templates (name, slug, subject, body_html, status, is_uploaded, msg91_slug, msg91_template_id) VALUES (?, ?, ?, ?, ?, 1, ?, ?)',
+            [name, slug, subject, bodyHtml, mappedStatus, slug, slug]
+          );
+          crmId = ins.insertId;
+        }
+
+        await db.query(
+          `INSERT INTO email_template_integrations 
+           (crm_template_id, provider, msg91_template_id, msg91_version_id, msg91_status_id, provider_status, last_synced_at)
+           VALUES (?, 'MSG91', ?, ?, ?, ?, NOW())
+           ON DUPLICATE KEY UPDATE 
+             msg91_template_id = VALUES(msg91_template_id),
+             msg91_version_id = VALUES(msg91_version_id),
+             msg91_status_id = VALUES(msg91_status_id),
+             provider_status = VALUES(provider_status),
+             last_synced_at = NOW()`,
+          [crmId, slug, versionId, statusId, mappedStatus]
+        );
+        synced.push({ id: crmId, slug, name, status: mappedStatus });
+      }
+      return synced;
+    } catch (err) {
+      console.error('[MailService] syncFromMsg91 error:', err.message);
+      return [];
+    }
+  }
+
   async syncTemplateToMsg91(id, forceReupload = false) {
     return this.getTemplateStatus(id);
   }
 
   async syncAllTemplatesToMsg91(forceReupload = false) {
+    await this.syncFromMsg91();
     const templates = await this.getTemplates();
     const results = [];
     for (const t of templates) {
@@ -468,6 +535,7 @@ class MailService {
 
   async getMsg91TemplatesLive() {
     try {
+      await this.syncFromMsg91();
       const liveTemplates = await msg91Provider.listTemplatesInMsg91();
       const localTemplates = await this.getTemplates();
       return { templates: localTemplates, rawMsg91: liveTemplates };
