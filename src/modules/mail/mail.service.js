@@ -461,51 +461,87 @@ class MailService {
 
   async syncFromMsg91() {
     try {
-      const liveTemplates = await msg91Provider.listTemplatesInMsg91();
+      const liveTemplates = await msg91Provider.listTemplatesInMsg91({ per_page: 100 });
       if (!Array.isArray(liveTemplates) || liveTemplates.length === 0) return [];
+
+      const normalizeName = (str) => (str ? str.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() : '');
+      const cleanHtml = (rawHtml) => {
+        if (!rawHtml) return '';
+        let str = String(rawHtml).trim();
+        if (str.startsWith('```')) {
+          str = str.replace(/^```[a-zA-Z]*\n?/, '').replace(/\n?```$/, '').trim();
+        }
+        return str;
+      };
 
       const synced = [];
       for (const t of liveTemplates) {
         const slug = t.slug || String(t.id);
-        const name = t.name || t.slug || (`MSG91 Template ${t.id}`);
+        const name = (t.name || t.slug || `MSG91 Template ${t.id}`).trim();
 
         let targetVer = null;
         if (Array.isArray(t.versions) && t.versions.length > 0) {
-          targetVer = t.versions.find(v => v.is_active === true || v.is_active === 1 || v.is_active === '1') || t.versions[0];
+          targetVer = t.versions.find(v => (v.is_active === true || v.is_active === 1 || v.is_active === '1') && v.body)
+                   || t.versions.find(v => (v.status_id === 2 || v.status_id === 5) && v.body)
+                   || t.versions.find(v => v.body)
+                   || t.versions[0];
         } else {
           targetVer = t;
         }
 
-        const subject = targetVer?.subject || t.subject || (`Template: ${name}`);
-        let rawBody = targetVer?.body || t.body || '';
-        if (typeof rawBody === 'string' && rawBody.trim().startsWith('```')) {
-          rawBody = rawBody.trim().replace(/^```[a-zA-Z]*\n?/, '').replace(/\n?```$/, '').trim();
-        }
-        const bodyHtml = rawBody;
+        const subject = (targetVer?.subject || t.subject || `Template: ${name}`).trim();
+        const rawBody = targetVer?.body || t.body || '';
+        const bodyHtml = cleanHtml(rawBody);
         const statusId = targetVer?.status_id !== undefined ? Number(targetVer.status_id) : (t.status_id ?? 2);
         const mappedStatus = msg91Provider.getTemplateStatus(statusId);
         const versionId = targetVer?.id ? String(targetVer.id) : null;
 
         if (!bodyHtml) continue;
 
+        const normName = normalizeName(name);
+
         const [existing] = await db.query(
-          'SELECT id FROM email_templates WHERE msg91_slug = ? OR msg91_template_id = ? OR slug = ? OR (name = ? AND is_uploaded = 1)',
-          [slug, slug, slug, name]
+          `SELECT id FROM email_templates 
+           WHERE msg91_slug = ? 
+              OR msg91_template_id = ? 
+              OR slug = ? 
+              OR LOWER(TRIM(name)) = LOWER(TRIM(?))
+              OR (LOWER(name) = 'onboard' AND ? LIKE '%welcome%')
+              OR (body_html LIKE '%Welcome Aboard!%' AND LOWER(TRIM(name)) = LOWER(TRIM(?)))`,
+          [slug, slug, slug, name, normName, name]
         );
 
         let crmId;
         if (existing.length > 0) {
           crmId = existing[0].id;
           await db.query(
-            'UPDATE email_templates SET name = ?, subject = ?, body_html = ?, status = ?, is_uploaded = 1, msg91_slug = ?, msg91_template_id = ?, updated_at = NOW() WHERE id = ?',
+            `UPDATE email_templates 
+             SET name = ?, subject = ?, body_html = ?, status = ?, is_uploaded = 1, msg91_slug = ?, msg91_template_id = ?, updated_at = NOW() 
+             WHERE id = ?`,
             [name, subject, bodyHtml, mappedStatus, slug, slug, crmId]
           );
         } else {
-          const [ins] = await db.query(
-            'INSERT INTO email_templates (name, slug, subject, body_html, status, is_uploaded, msg91_slug, msg91_template_id) VALUES (?, ?, ?, ?, ?, 1, ?, ?)',
-            [name, slug, subject, bodyHtml, mappedStatus, slug, slug]
+          const [fuzzyMatch] = await db.query(
+            `SELECT id FROM email_templates WHERE (msg91_slug IS NULL OR msg91_slug = '') AND LOWER(name) LIKE ?`,
+            [`%${normName.split(' ')[0]}%`]
           );
-          crmId = ins.insertId;
+
+          if (fuzzyMatch.length > 0) {
+            crmId = fuzzyMatch[0].id;
+            await db.query(
+              `UPDATE email_templates 
+               SET name = ?, subject = ?, body_html = ?, status = ?, is_uploaded = 1, msg91_slug = ?, msg91_template_id = ?, updated_at = NOW() 
+               WHERE id = ?`,
+              [name, subject, bodyHtml, mappedStatus, slug, slug, crmId]
+            );
+          } else {
+            const [ins] = await db.query(
+              `INSERT INTO email_templates (name, slug, subject, body_html, status, is_uploaded, msg91_slug, msg91_template_id) 
+               VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
+              [name, slug, subject, bodyHtml, mappedStatus, slug, slug]
+            );
+            crmId = ins.insertId;
+          }
         }
 
         await db.query(
@@ -522,6 +558,16 @@ class MailService {
         );
         synced.push({ id: crmId, slug, name, status: mappedStatus });
       }
+
+      // Cleanup orphaned dummy seed templates containing "Welcome Aboard!"
+      const [dummyRows] = await db.query(
+        `SELECT id FROM email_templates WHERE body_html LIKE '%Welcome Aboard!%' AND (msg91_slug IS NULL OR msg91_slug = '')`
+      );
+      for (const dummy of dummyRows) {
+        await db.query('DELETE FROM email_template_integrations WHERE crm_template_id = ?', [dummy.id]);
+        await db.query('DELETE FROM email_templates WHERE id = ?', [dummy.id]);
+      }
+
       return synced;
     } catch (err) {
       console.error('[MailService] syncFromMsg91 error:', err.message);
