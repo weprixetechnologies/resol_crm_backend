@@ -107,6 +107,9 @@ class DashboardService {
     );
 
     // Pivot chart data so each time slot has total count + per-staff counts
+    const staffCodesInBreakdown = staffBreakdownRows.map(s => s.staff_code);
+    const codesToInitialize = selectedStaffCodes.length > 0 ? selectedStaffCodes : staffCodesInBreakdown;
+
     const dateMap = new Map();
     for (const row of contactChartRows) {
       const dateKey = row.date;
@@ -114,12 +117,21 @@ class DashboardService {
       const cCount = Number(row.count) || 0;
       
       if (!dateMap.has(dateKey)) {
-        dateMap.set(dateKey, { date: dateKey, count: 0 });
+        const initialObj = { date: dateKey, count: 0 };
+        codesToInitialize.forEach(c => { initialObj[c] = 0; });
+        dateMap.set(dateKey, initialObj);
       }
       const entry = dateMap.get(dateKey);
       entry.count += cCount;
       entry[code] = (entry[code] || 0) + cCount;
     }
+
+    for (const entry of dateMap.values()) {
+      codesToInitialize.forEach(c => {
+        if (entry[c] === undefined) entry[c] = 0;
+      });
+    }
+
     const chartDataPivoted = Array.from(dateMap.values());
 
     // Get active staff list for frontend filter dropdown
