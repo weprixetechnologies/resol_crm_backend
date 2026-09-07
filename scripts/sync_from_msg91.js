@@ -2,6 +2,15 @@ require('dotenv').config({ path: '.env' });
 const db = require('../src/config/db');
 const { msg91Provider } = require('../src/integrations/email');
 
+const cleanHtml = (rawHtml) => {
+  if (!rawHtml) return '';
+  let str = String(rawHtml).trim();
+  if (str.startsWith('```')) {
+    str = str.replace(/^```[a-zA-Z]*\n?/, '').replace(/\n?```$/, '').trim();
+  }
+  return str;
+};
+
 async function syncFromMsg91() {
   try {
     const liveTemplates = await msg91Provider.listTemplatesInMsg91();
@@ -23,19 +32,17 @@ async function syncFromMsg91() {
       }
 
       const subject = targetVer?.subject || t.subject || (`Template: ${name}`);
-      const bodyHtml = targetVer?.body || t.body || '';
+      const rawBody = targetVer?.body || t.body || '';
+      const bodyHtml = cleanHtml(rawBody);
       const statusId = targetVer?.status_id !== undefined ? Number(targetVer.status_id) : (t.status_id ?? 2);
       const mappedStatus = msg91Provider.getTemplateStatus(statusId);
       const versionId = targetVer?.id ? String(targetVer.id) : null;
 
-      if (!bodyHtml) {
-        console.log(`Skipping ${slug} (no body HTML)`);
-        continue;
-      }
+      if (!bodyHtml) continue;
 
       // Check if template exists in email_templates table
       const [existing] = await db.query(
-        'SELECT id, body_html FROM email_templates WHERE msg91_slug = ? OR msg91_template_id = ? OR slug = ? OR name = ?',
+        'SELECT id FROM email_templates WHERE msg91_slug = ? OR msg91_template_id = ? OR slug = ? OR (name = ? AND is_uploaded = 1)',
         [slug, slug, slug, name]
       );
 
@@ -46,7 +53,7 @@ async function syncFromMsg91() {
           'UPDATE email_templates SET name = ?, subject = ?, body_html = ?, status = ?, is_uploaded = 1, msg91_slug = ?, msg91_template_id = ?, updated_at = NOW() WHERE id = ?',
           [name, subject, bodyHtml, mappedStatus, slug, slug, crmId]
         );
-        console.log(`[UPDATE] CRM Template #${crmId} (${name}) updated with real MSG91 body HTML!`);
+        console.log(`[UPDATE] CRM Template #${crmId} (${name}) updated with clean MSG91 body HTML!`);
         updatedCount++;
       } else {
         const [ins] = await db.query(

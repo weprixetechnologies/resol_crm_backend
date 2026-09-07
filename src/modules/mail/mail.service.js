@@ -4,6 +4,15 @@ const auditService = require('../audit/audit.service');
 const { getActiveEmailProvider, msg91Provider, nodemailerProvider } = require('../../integrations/email');
 const userService = require('../users/user.service');
 
+const cleanHtmlCode = (str) => {
+  if (!str) return '';
+  let s = String(str).trim();
+  if (s.startsWith('```')) {
+    s = s.replace(/^```[a-zA-Z]*\n?/, '').replace(/\n?```$/, '').trim();
+  }
+  return s;
+};
+
 class MailService {
   async testConnection(customSettings = null) {
     const provider = await getActiveEmailProvider(customSettings?.email_provider);
@@ -48,14 +57,15 @@ class MailService {
     const templates = rows.map(t => {
       const status = t.provider_status || t.status || 'PENDING';
       const canSend = (status === 'APPROVED');
+      const cleanedBody = cleanHtmlCode(t.body_html);
       const item = {
         id: t.id,
         crmTemplateId: t.id,
         name: t.name,
         slug: t.slug || t.msg91_slug || null,
         subject: t.subject,
-        body: t.body_html,
-        body_html: t.body_html,
+        body: cleanedBody,
+        body_html: cleanedBody,
         variables: typeof t.variables === 'string' ? JSON.parse(t.variables) : (t.variables || []),
         design_json: typeof t.design_json === 'string' ? JSON.parse(t.design_json) : (t.design_json || null),
         status,
@@ -99,6 +109,7 @@ class MailService {
     const t = rows[0];
     const status = t.provider_status || t.status || 'PENDING';
     const canSend = (status === 'APPROVED');
+    const cleanedBody = cleanHtmlCode(t.body_html);
 
     const item = {
       id: t.id,
@@ -106,8 +117,8 @@ class MailService {
       name: t.name,
       slug: t.slug || t.msg91_slug || null,
       subject: t.subject,
-      body: t.body_html,
-      body_html: t.body_html,
+      body: cleanedBody,
+      body_html: cleanedBody,
       variables: typeof t.variables === 'string' ? JSON.parse(t.variables) : (t.variables || []),
       design_json: typeof t.design_json === 'string' ? JSON.parse(t.design_json) : (t.design_json || null),
       status,
@@ -466,7 +477,11 @@ class MailService {
         }
 
         const subject = targetVer?.subject || t.subject || (`Template: ${name}`);
-        const bodyHtml = targetVer?.body || t.body || '';
+        let rawBody = targetVer?.body || t.body || '';
+        if (typeof rawBody === 'string' && rawBody.trim().startsWith('```')) {
+          rawBody = rawBody.trim().replace(/^```[a-zA-Z]*\n?/, '').replace(/\n?```$/, '').trim();
+        }
+        const bodyHtml = rawBody;
         const statusId = targetVer?.status_id !== undefined ? Number(targetVer.status_id) : (t.status_id ?? 2);
         const mappedStatus = msg91Provider.getTemplateStatus(statusId);
         const versionId = targetVer?.id ? String(targetVer.id) : null;
