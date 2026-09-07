@@ -16,53 +16,54 @@ const normalizeName = (str) => {
   return str.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 };
 
-async function syncFromMsg91Master() {
+async function syncFromMsg91MasterDetailed() {
   try {
-    console.log('Fetching live templates from MSG91 API...');
+    console.log('====================================================');
+    console.log('       MSG91 TEMPLATE MASTER SYNC STARTING          ');
+    console.log('====================================================\n');
+
+    // Test DB connection and log status
+    const [dbTest] = await db.query('SELECT DATABASE() as dbname, @@hostname as host');
+    console.log(`[DB CONNECTED] Successfully connected to MySQL Database: "${dbTest[0]?.dbname || 'CRM Database'}"\n`);
+
+    console.log('[MSG91 FETCH] Fetching all templates & first version (t.versions[0]) from MSG91 API...');
     const liveTemplates = await msg91Provider.listTemplatesInMsg91({ per_page: 100 });
-    console.log(`Found ${liveTemplates.length} live templates on MSG91.\n`);
+    console.log(`[MSG91 FETCHED] Successfully retrieved ${liveTemplates.length} live templates from MSG91.\n`);
 
     let updatedCount = 0;
     let insertedCount = 0;
+    let index = 0;
 
     for (const t of liveTemplates) {
+      index++;
       const slug = t.slug || String(t.id);
       const name = (t.name || t.slug || `MSG91 Template ${t.id}`).trim();
 
-      // Find active or best version
+      // REQUIREMENT: Always take the first version (v1.0 / t.versions[0])
       let targetVer = null;
       if (Array.isArray(t.versions) && t.versions.length > 0) {
-        // Priority 1: active version with body
-        targetVer = t.versions.find(v => (v.is_active === true || v.is_active === 1 || v.is_active === '1') && v.body);
-        // Priority 2: approved status_id (2 or 5) with body
-        if (!targetVer) {
-          targetVer = t.versions.find(v => (v.status_id === 2 || v.status_id === 5) && v.body);
-        }
-        // Priority 3: any version with body
-        if (!targetVer) {
-          targetVer = t.versions.find(v => v.body) || t.versions[0];
-        }
+        targetVer = t.versions[0]; // First version for all
       } else {
         targetVer = t;
       }
 
       const subject = (targetVer?.subject || t.subject || `Template: ${name}`).trim();
       const rawBody = targetVer?.body || t.body || '';
-      const bodyHtml = cleanHtml(rawBody);
+      const newBodyHtml = cleanHtml(rawBody);
       const statusId = targetVer?.status_id !== undefined ? Number(targetVer.status_id) : (t.status_id ?? 2);
       const mappedStatus = msg91Provider.getTemplateStatus(statusId);
       const versionId = targetVer?.id ? String(targetVer.id) : null;
 
-      if (!bodyHtml) {
-        console.log(`[SKIP] Template ${name} (${slug}) - no body HTML found.`);
+      if (!newBodyHtml) {
+        console.log(`[ITEM ${index}/${liveTemplates.length}] [SKIP] Template "${name}" (slug: ${slug}) - no body HTML content in first version.`);
         continue;
       }
 
       const normName = normalizeName(name);
 
-      // Search existing CRM template by slug OR by normalized name OR dummy "Welcome Aboard!"
+      // Check existing template in database
       const [existing] = await db.query(
-        `SELECT id, name, body_html, msg91_slug FROM email_templates 
+        `SELECT id, name, subject, body_html, msg91_slug FROM email_templates 
          WHERE msg91_slug = ? 
             OR msg91_template_id = ? 
             OR slug = ? 
@@ -75,39 +76,55 @@ async function syncFromMsg91Master() {
       let crmId;
       if (existing.length > 0) {
         crmId = existing[0].id;
+        const prevBodySample = (existing[0].body_html || '').replace(/\s+/g, ' ').substring(0, 90);
+        const newBodySample = newBodyHtml.replace(/\s+/g, ' ').substring(0, 90);
+
         await db.query(
           `UPDATE email_templates 
            SET name = ?, subject = ?, body_html = ?, status = ?, is_uploaded = 1, msg91_slug = ?, msg91_template_id = ?, updated_at = NOW() 
            WHERE id = ?`,
-          [name, subject, bodyHtml, mappedStatus, slug, slug, crmId]
+          [name, subject, newBodyHtml, mappedStatus, slug, slug, crmId]
         );
-        console.log(`[UPDATED] Existing CRM Template #${crmId} ("${name}") updated with real MSG91 HTML & slug "${slug}"`);
+
+        console.log(`[ITEM ${index}/${liveTemplates.length}] [DB UPDATED] CRM Template #${crmId} ("${name}") | Slug: "${slug}" | Status: ${mappedStatus}`);
+        console.log(`  ├─ PREVIOUS CONTENT IN DB : "${prevBodySample}..."`);
+        console.log(`  └─ NEW MSG91 CONTENT      : "${newBodySample}..."`);
         updatedCount++;
       } else {
-        // Also check if there's any un-linked old template with matching normalized name
+        // Check fuzzy match
         const [fuzzyMatch] = await db.query(
-          `SELECT id FROM email_templates WHERE (msg91_slug IS NULL OR msg91_slug = '') AND LOWER(name) LIKE ?`,
+          `SELECT id, name, body_html FROM email_templates WHERE (msg91_slug IS NULL OR msg91_slug = '') AND LOWER(name) LIKE ?`,
           [`%${normName.split(' ')[0]}%`]
         );
 
         if (fuzzyMatch.length > 0) {
           crmId = fuzzyMatch[0].id;
+          const prevBodySample = (fuzzyMatch[0].body_html || '').replace(/\s+/g, ' ').substring(0, 90);
+          const newBodySample = newBodyHtml.replace(/\s+/g, ' ').substring(0, 90);
+
           await db.query(
             `UPDATE email_templates 
              SET name = ?, subject = ?, body_html = ?, status = ?, is_uploaded = 1, msg91_slug = ?, msg91_template_id = ?, updated_at = NOW() 
              WHERE id = ?`,
-            [name, subject, bodyHtml, mappedStatus, slug, slug, crmId]
+            [name, subject, newBodyHtml, mappedStatus, slug, slug, crmId]
           );
-          console.log(`[UPDATED FUZZY] Old unlinked CRM Template #${crmId} updated to "${name}" with real MSG91 HTML & slug "${slug}"`);
+
+          console.log(`[ITEM ${index}/${liveTemplates.length}] [DB UPDATED FUZZY] CRM Template #${crmId} ("${name}") | Slug: "${slug}" | Status: ${mappedStatus}`);
+          console.log(`  ├─ PREVIOUS CONTENT IN DB : "${prevBodySample}..."`);
+          console.log(`  └─ NEW MSG91 CONTENT      : "${newBodySample}..."`);
           updatedCount++;
         } else {
+          const newBodySample = newBodyHtml.replace(/\s+/g, ' ').substring(0, 90);
           const [ins] = await db.query(
             `INSERT INTO email_templates (name, slug, subject, body_html, status, is_uploaded, msg91_slug, msg91_template_id) 
              VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
-            [name, slug, subject, bodyHtml, mappedStatus, slug, slug]
+            [name, slug, subject, newBodyHtml, mappedStatus, slug, slug]
           );
           crmId = ins.insertId;
-          console.log(`[INSERTED] New CRM Template #${crmId} ("${name}") imported from MSG91 with slug "${slug}"`);
+
+          console.log(`[ITEM ${index}/${liveTemplates.length}] [DB INSERTED] New CRM Template #${crmId} ("${name}") | Slug: "${slug}" | Status: ${mappedStatus}`);
+          console.log(`  ├─ PREVIOUS CONTENT IN DB : (None - New Record Created)`);
+          console.log(`  └─ NEW MSG91 CONTENT      : "${newBodySample}..."`);
           insertedCount++;
         }
       }
@@ -137,14 +154,14 @@ async function syncFromMsg91Master() {
       await db.query('DELETE FROM email_templates WHERE id = ?', [dummy.id]);
     }
 
-    console.log(`\n========================================`);
-    console.log(`Sync Complete: ${updatedCount} updated, ${insertedCount} inserted.`);
-    console.log(`========================================\n`);
+    console.log(`\n====================================================`);
+    console.log(`  SYNC COMPLETE! Updated: ${updatedCount} | Inserted: ${insertedCount}`);
+    console.log(`====================================================\n`);
     process.exit(0);
   } catch (e) {
-    console.error('Error during MSG91 master sync:', e);
+    console.error('Error during MSG91 master detailed sync:', e);
     process.exit(1);
   }
 }
 
-syncFromMsg91Master();
+syncFromMsg91MasterDetailed();
