@@ -2,6 +2,7 @@ const db = require('../../config/db');
 const settingsService = require('../settings/settings.service');
 const auditService = require('../audit/audit.service');
 const { getActiveEmailProvider, msg91Provider, nodemailerProvider } = require('../../integrations/email');
+const userService = require('../users/user.service');
 
 class MailService {
   async testConnection(customSettings = null) {
@@ -607,12 +608,18 @@ class MailService {
     }
 
     if (sendToAll) {
-      const [customers] = await db.query(
-        `SELECT u.*, s.staff_code as created_by_code
-         FROM users u
-         LEFT JOIN staff s ON u.created_by = s.id
-         WHERE u.email IS NOT NULL AND u.email != ''`
-      );
+      let customers = [];
+      if (filterCriteria && Object.keys(filterCriteria).length > 0) {
+        customers = await userService.getAllUsersForExport('admin', senderId, filterCriteria);
+      } else {
+        const [rows] = await db.query(
+          `SELECT u.*, s.staff_code as created_by_code
+           FROM users u
+           LEFT JOIN staff s ON u.created_by = s.id
+           WHERE u.email IS NOT NULL AND u.email != ''`
+        );
+        customers = rows;
+      }
       for (const cust of customers) {
         if (isValidEmail(cust.email)) {
           recipientList.push({
@@ -626,7 +633,9 @@ class MailService {
               institute: cust.institute || '',
               department: cust.department || '',
               designation: cust.designation || '',
-              staff_code: cust.created_by_code || ''
+              staff_code: cust.created_by_code || cust.staff_code || '',
+              tag1: cust.tag1 || '',
+              tag2: cust.tag2 || ''
             }
           });
         }

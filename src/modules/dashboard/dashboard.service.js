@@ -49,9 +49,21 @@ class DashboardService {
     let contactWhere = `u.created_at >= NOW() - ${contactIntervalClause}`;
     const contactParams = [];
 
-    if (staffCodeFilter) {
-      contactWhere += ` AND s.staff_code LIKE ?`;
-      contactParams.push(`%${staffCodeFilter}%`);
+    // Parse staffCodes (supports multiple selected staff codes)
+    let selectedStaffCodes = Array.isArray(contactOptions.staffCodes)
+      ? contactOptions.staffCodes.map(s => String(s).trim()).filter(Boolean)
+      : [];
+
+    if (selectedStaffCodes.length === 0 && contactOptions.staffCode) {
+      selectedStaffCodes = String(contactOptions.staffCode).split(',').map(s => s.trim()).filter(Boolean);
+    }
+
+    if (selectedStaffCodes.length === 1) {
+      contactWhere += ` AND s.staff_code = ?`;
+      contactParams.push(selectedStaffCodes[0]);
+    } else if (selectedStaffCodes.length > 1) {
+      contactWhere += ` AND s.staff_code IN (?)`;
+      contactParams.push(selectedStaffCodes);
     }
 
     if (user.role !== 'admin') {
@@ -72,15 +84,43 @@ class DashboardService {
       contactParams
     );
 
+    // Group by time bucket AND staff_code for multi-staff comparison chart
     const [contactChartRows] = await db.query(
-      `SELECT ${contactDateSelect}, COUNT(*) as count 
+      `SELECT ${contactDateSelect}, COALESCE(s.staff_code, 'UNASSIGNED') as staff_code, COUNT(*) as count 
        FROM users u 
        LEFT JOIN staff s ON u.created_by = s.id 
        WHERE ${contactWhere} 
-       GROUP BY ${contactGroupClause} 
+       GROUP BY ${contactGroupClause}, s.staff_code 
        ORDER BY ${contactGroupClause} ASC`,
       contactParams
     );
+
+    // Staff breakdown counts in selected timeframe
+    const [staffBreakdownRows] = await db.query(
+      `SELECT COALESCE(s.staff_code, 'UNASSIGNED') as staff_code, COALESCE(s.name, 'Unknown') as staff_name, COUNT(*) as count
+       FROM users u
+       LEFT JOIN staff s ON u.created_by = s.id
+       WHERE ${contactWhere}
+       GROUP BY s.staff_code, s.name
+       ORDER BY count DESC`,
+      contactParams
+    );
+
+    // Pivot chart data so each time slot has total count + per-staff counts
+    const dateMap = new Map();
+    for (const row of contactChartRows) {
+      const dateKey = row.date;
+      const code = row.staff_code || 'UNASSIGNED';
+      const cCount = Number(row.count) || 0;
+      
+      if (!dateMap.has(dateKey)) {
+        dateMap.set(dateKey, { date: dateKey, count: 0 });
+      }
+      const entry = dateMap.get(dateKey);
+      entry.count += cCount;
+      entry[code] = (entry[code] || 0) + cCount;
+    }
+    const chartDataPivoted = Array.from(dateMap.values());
 
     // Get active staff list for frontend filter dropdown
     const [staffList] = await db.query(
@@ -91,9 +131,11 @@ class DashboardService {
       total: contactsCount || 0,
       value,
       unit,
-      staffCode: staffCodeFilter,
+      staffCodes: selectedStaffCodes,
+      staffCode: selectedStaffCodes.join(','),
       staffList: staffList || [],
-      chartData: contactChartRows || []
+      staffBreakdown: staffBreakdownRows || [],
+      chartData: chartDataPivoted || []
     };
 
     if (user.role === 'admin') {

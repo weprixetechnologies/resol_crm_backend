@@ -217,7 +217,26 @@ class UserService {
       return { items: [], total, page, totalPages: Math.ceil(total / limit) || 1, isSyncPending: !!isSyncPending };
     }
 
-    const [rows] = await db.query(`SELECT u.*, s.staff_code as created_by_code ${baseQuery} ORDER BY u.sl_no DESC, u.id DESC LIMIT ? OFFSET ?`, [...params, queryLimit, offset]);
+    const allowedSortFields = {
+      sl_no: 'u.sl_no',
+      created_at: 'u.created_at',
+      name: 'u.name',
+      email: 'u.email',
+      id: 'u.id'
+    };
+    const sortField = allowedSortFields[filters.sortBy] || null;
+    const sortOrder = (filters.sortOrder && String(filters.sortOrder).toUpperCase() === 'ASC') ? 'ASC' : 'DESC';
+
+    let orderClause = 'ORDER BY u.sl_no DESC, u.id DESC';
+    if (sortField) {
+      if (sortField === 'u.sl_no') {
+        orderClause = `ORDER BY u.sl_no ${sortOrder}, u.id ${sortOrder}`;
+      } else {
+        orderClause = `ORDER BY ${sortField} ${sortOrder}, u.id DESC`;
+      }
+    }
+
+    const [rows] = await db.query(`SELECT u.*, s.staff_code as created_by_code ${baseQuery} ${orderClause} LIMIT ? OFFSET ?`, [...params, queryLimit, offset]);
 
     return {
       items: rows,
@@ -300,7 +319,26 @@ class UserService {
       params.push(`${filters.endDate} 23:59:59`);
     }
 
-    const [rows] = await db.query(`SELECT u.*, s.staff_code as created_by_code ${baseQuery} ORDER BY u.sl_no DESC, u.id DESC`, params);
+    const allowedSortFields = {
+      sl_no: 'u.sl_no',
+      created_at: 'u.created_at',
+      name: 'u.name',
+      email: 'u.email',
+      id: 'u.id'
+    };
+    const sortField = allowedSortFields[filters.sortBy] || null;
+    const sortOrder = (filters.sortOrder && String(filters.sortOrder).toUpperCase() === 'ASC') ? 'ASC' : 'DESC';
+
+    let orderClause = 'ORDER BY u.sl_no DESC, u.id DESC';
+    if (sortField) {
+      if (sortField === 'u.sl_no') {
+        orderClause = `ORDER BY u.sl_no ${sortOrder}, u.id ${sortOrder}`;
+      } else {
+        orderClause = `ORDER BY ${sortField} ${sortOrder}, u.id DESC`;
+      }
+    }
+
+    const [rows] = await db.query(`SELECT u.*, s.staff_code as created_by_code ${baseQuery} ${orderClause}`, params);
     return rows;
   }
 

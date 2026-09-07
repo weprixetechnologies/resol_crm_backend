@@ -29,7 +29,9 @@ class UserController {
       startDate: req.query.startDate,
       endDate: req.query.endDate,
       fromSNo: req.query.fromSNo,
-      toSNo: req.query.toSNo
+      toSNo: req.query.toSNo,
+      sortBy: req.query.sortBy,
+      sortOrder: req.query.sortOrder
     };
     
     const result = await userService.getUsers(page, limit, req.user.role, req.user.id, filters);
@@ -54,7 +56,9 @@ class UserController {
       startDate: req.query.startDate,
       endDate: req.query.endDate,
       fromSNo: req.query.fromSNo,
-      toSNo: req.query.toSNo
+      toSNo: req.query.toSNo,
+      sortBy: req.query.sortBy,
+      sortOrder: req.query.sortOrder
     };
 
     const users = await userService.getAllUsersForExport(req.user.role, req.user.id, filters);
