@@ -4,10 +4,18 @@ const mysql = require('mysql2/promise');
 const env = require('./env');
 
 const pool = mysql.createPool({
-  host: env.DB_HOST,
-  user: env.DB_USER,
-  password: env.DB_PASSWORD,
-  database: env.DB_NAME,
+  // host: env.DB_HOST,
+  // user: env.DB_USER,
+  // password: env.DB_PASSWORD,
+  // database: env.DB_NAME,
+  // timezone: '+05:30',
+  // waitForConnections: true,
+  // connectionLimit: 10,
+  // queueLimit: 0
+  host: '127.0.0.1',
+  user: 'adminuser',
+  password: 'Vishal@13241',
+  database: 'resol_crm',
   timezone: '+05:30',
   waitForConnections: true,
   connectionLimit: 10,
@@ -17,9 +25,9 @@ const pool = mysql.createPool({
 // Fallback pool for local dev environments where root/rseditz@222 is used
 const fallbackPool = mysql.createPool({
   host: '127.0.0.1',
-  user: 'root',
-  password: 'rseditz@222',
-  database: 'vishalji_crm',
+  user: 'adminuser',
+  password: 'Vishal@13241',
+  database: 'resol_crm',
   timezone: '+05:30',
   waitForConnections: true,
   connectionLimit: 10,
