@@ -770,8 +770,9 @@ class Msg91Provider extends EmailProvider {
     const endDate = params.endDate || params.toDate;
     if (startDate) query.append('startDate', startDate);
     if (endDate) query.append('endDate', endDate);
-    if (params.page) query.append('page', String(params.page));
-    if (params.limit) query.append('limit', String(params.limit));
+    
+    // MSG91 API v5 doesn't support offset pagination, so we fetch all logs and paginate locally
+    query.append('limit', '10000');
     if (params.status) query.append('status', params.status);
     if (params.email) query.append('email', params.email);
 
@@ -801,9 +802,17 @@ class Msg91Provider extends EmailProvider {
       throw new Error(typeof errMsg === 'object' ? JSON.stringify(errMsg) : errMsg);
     }
 
-    const rawList = Array.isArray(resJson.data)
+    let rawList = Array.isArray(resJson.data)
       ? resJson.data
       : (Array.isArray(resJson.logs) ? resJson.logs : (Array.isArray(resJson) ? resJson : []));
+
+    const totalCount = resJson.metadata?.total || rawList.length;
+
+    const page = parseInt(params.page || 1, 10);
+    const limit = parseInt(params.limit || 20, 10);
+    const offset = (page - 1) * limit;
+
+    rawList = rawList.slice(offset, offset + limit);
 
     const items = rawList.map(item => {
       if (!item || typeof item !== 'object') return null;
@@ -856,8 +865,6 @@ class Msg91Provider extends EmailProvider {
       };
     }).filter(Boolean);
 
-    const totalCount = resJson.metadata?.total || items.length;
-
     const recipientEmails = [...new Set(items.map(i => i.recipientEmail).filter(Boolean))];
     let activeUsersMap = {};
     let archivedUsersMap = {};
@@ -907,11 +914,15 @@ class Msg91Provider extends EmailProvider {
       };
     });
 
+    const currentPage = parseInt(params.page || 1, 10);
+    const currentLimit = parseInt(params.limit || 20, 10);
+
     return {
       items: annotatedItems,
       total: totalCount,
-      page: parseInt(params.page || 1, 10),
-      limit: parseInt(params.limit || 20, 10),
+      page: currentPage,
+      limit: currentLimit,
+      totalPages: Math.ceil(totalCount / currentLimit) || 1,
       rawResponse: resJson
     };
   }
